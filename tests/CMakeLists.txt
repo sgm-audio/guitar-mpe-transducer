@@ -6,6 +6,7 @@ add_executable(transducer_tests
     test_pitch_continuity.cpp
     test_release_velocity.cpp
     test_voice_allocator.cpp
+    test_brightness_estimator.cpp
     test_ump_builder.cpp
     test_event_emitter.cpp
     test_plugin_lifecycle.cpp

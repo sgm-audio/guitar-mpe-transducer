@@ -114,6 +114,33 @@ public:
         return out->try_push(out, &ev.header);
     }
 
+    static inline bool emitBrightnessExpression(
+        const clap_output_events_t* out,
+        uint32_t sample_offset,
+        int32_t note_id,
+        int16_t key,
+        double brightness,
+        int16_t channel = 0,
+        uint16_t port_index = 0)
+    {
+        if (!out || !out->try_push) return false;
+
+        clap_event_note_expression_t ev{};
+        ev.header.size = sizeof(ev);
+        ev.header.time = sample_offset;
+        ev.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+        ev.header.type = CLAP_EVENT_NOTE_EXPRESSION;
+        ev.header.flags = 0;
+        ev.expression_id = CLAP_NOTE_EXPRESSION_BRIGHTNESS;
+        ev.note_id = note_id;
+        ev.port_index = port_index;
+        ev.channel = channel;
+        ev.key = key;
+        ev.value = brightness;
+
+        return out->try_push(out, &ev.header);
+    }
+
     static inline bool emitMidi2Ump(
         const clap_output_events_t* out,
         uint32_t sample_offset,

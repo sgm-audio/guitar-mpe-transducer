@@ -190,7 +190,11 @@ static clap_process_status plugin_process(const clap_plugin_t* plugin, const cla
         // 1. Run transient detector
         auto trans_res = inst->state.transient_detector.process(sample);
 
-        // 2. Run YIN pitch tracker
+        // 2. Run brightness estimator
+        float brightness = inst->state.brightness_estimator.process(
+            sample, static_cast<float>(inst->state.sample_rate));
+
+        // 3. Run YIN pitch tracker
         auto pitch_opt = inst->state.pitch_tracker.processSample(
             sample, static_cast<float>(inst->state.sample_rate));
 
@@ -243,6 +247,10 @@ static clap_process_status plugin_process(const clap_plugin_t* plugin, const cla
                 double norm_press = std::clamp(static_cast<double>(trans_res.envelope) * 6.0, 0.0, 1.0);
                 transducer::clap::EventEmitter::emitPressureExpression(
                     out_ev, s, inst->state.active_note_id, inst->state.active_key, norm_press);
+
+                // CLAP Note Expression Brightness (timbral evolution from picking location)
+                transducer::clap::EventEmitter::emitBrightnessExpression(
+                    out_ev, s, inst->state.active_note_id, inst->state.active_key, brightness);
 
                 // MIDI 2.0 UMP Type 4 Per-Note Pitch Bend
                 auto ump_bend = transducer::midi2::UmpBuilder::makePerNotePitchBend(
