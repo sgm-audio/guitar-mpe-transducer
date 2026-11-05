@@ -13,7 +13,7 @@ enable_testing()
 
 # Compiler warnings
 if(MSVC)
-    add_compile_options(/W4 /permissive-)
+    add_compile_options(/W4 /permissive- /wd4324)
 else()
     add_compile_options(-Wall -Wextra -Wpedantic)
 endif()
