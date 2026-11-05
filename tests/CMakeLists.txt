@@ -3,6 +3,8 @@ add_executable(transducer_tests
     test_ring_buffer.cpp
     test_transient_detector.cpp
     test_yin_pitch_tracker.cpp
+    test_ump_builder.cpp
+    test_event_emitter.cpp
 )
 
 target_link_libraries(transducer_tests
