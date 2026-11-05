@@ -2,6 +2,7 @@
 
 #include <cmath>
 #include <algorithm>
+#include <array>
 
 namespace transducer::dsp {
 
@@ -13,49 +14,66 @@ struct TransientResult {
 
 class TransientDetector {
 public:
-    explicit TransientDetector(float threshold = 0.015f)
-        : threshold_(threshold) {}
+    static constexpr size_t kDelayLen = 128; // ~2.67ms @ 48kHz
+
+    explicit TransientDetector(float threshold = 0.02f)
+        : threshold_(threshold) {
+        delay_ring_.fill(0.0f);
+    }
 
     void reset() {
-        env_fast_ = 0.0f;
-        env_slow_ = 0.0f;
+        env_ = 0.0f;
+        delay_ring_.fill(0.0f);
+        ring_pos_ = 0;
         lockout_samples_ = 0;
+    }
+
+    void set_threshold(float threshold) noexcept {
+        threshold_ = threshold;
     }
 
     TransientResult process(float sample) {
         TransientResult res{};
         float abs_x = std::fabs(sample);
 
-        // Fast envelope tracking attack (~1ms at 48kHz)
-        env_fast_ = 0.92f * env_fast_ + 0.08f * abs_x;
-        // Slow envelope tracking ambient decay (~50ms)
-        env_slow_ = 0.998f * env_slow_ + 0.002f * abs_x;
+        // Fast peak follower
+        if (abs_x > env_) {
+            env_ = 0.80f * env_ + 0.20f * abs_x;
+        } else {
+            env_ = 0.999f * env_ + 0.001f * abs_x;
+        }
 
-        res.envelope = env_fast_;
+        res.envelope = env_;
+
+        // Delayed envelope from 128 samples ago
+        float delayed_env = delay_ring_[ring_pos_];
+        delay_ring_[ring_pos_] = env_;
+        ring_pos_ = (ring_pos_ + 1) & (kDelayLen - 1);
 
         if (lockout_samples_ > 0) {
             --lockout_samples_;
             return res;
         }
 
-        // Onset occurs when fast envelope exceeds slow envelope by threshold
-        float diff = env_fast_ - env_slow_;
-        if (env_fast_ > threshold_ && diff > 0.010f) {
+        // Onset detected when energy jumps significantly compared to ~2.6ms ago
+        float diff = env_ - delayed_env;
+        if (env_ > threshold_ && diff > threshold_) {
             res.onset_detected = true;
             // Map attack slope to velocity (0.1 to 1.0)
-            res.velocity = std::clamp(diff * 15.0f, 0.1f, 1.0f);
-            lockout_samples_ = 256; // ~5.3ms lockout to avoid double triggering on string bounce
+            res.velocity = std::clamp(diff * 5.0f, 0.1f, 1.0f);
+            lockout_samples_ = 384; // ~8ms lockout to avoid double triggering on string bounce
         }
 
         return res;
     }
 
-    float current_envelope() const { return env_fast_; }
+    float current_envelope() const { return env_; }
 
 private:
-    float threshold_{0.015f};
-    float env_fast_{0.0f};
-    float env_slow_{0.0f};
+    float threshold_{0.02f};
+    float env_{0.0f};
+    std::array<float, kDelayLen> delay_ring_{};
+    size_t ring_pos_{0};
     int lockout_samples_{0};
 };
 
