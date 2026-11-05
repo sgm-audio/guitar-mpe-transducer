@@ -1,0 +1,32 @@
+# Build artifacts
+build/
+bin/
+out/
+*.dir/
+
+# CMake generated
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+*.ninja
+.ninja_*
+compile_commands.json
+
+# IDE / Editor
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+*.sln
+
+# Audio Plugins & Bundles
+*.clap
+*.vst3
+*.component
+*.aaxlibrary
+
+# OS artifacts
+.DS_Store
+Thumbs.db
