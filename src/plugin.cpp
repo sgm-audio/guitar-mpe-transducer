@@ -175,12 +175,13 @@ static clap_process_status plugin_process(const clap_plugin_t* plugin, const cla
                 pitch.midi_note, pitch.confidence, pitch.is_valid);
 
             // Note Off / String decay check
+            float rel_vel = inst->state.release_velocity.process(trans_res.envelope);
             if (trans_res.envelope < 0.002f && inst->state.active_note_id != -1) {
                 transducer::clap::EventEmitter::emitNoteOff(
-                    out_ev, s, inst->state.active_note_id, inst->state.active_key);
+                    out_ev, s, inst->state.active_note_id, inst->state.active_key, rel_vel);
 
                 auto ump_off = transducer::midi2::UmpBuilder::makeNoteOff(
-                    0, 0, static_cast<uint8_t>(inst->state.active_key));
+                    0, 0, static_cast<uint8_t>(inst->state.active_key), rel_vel);
                 transducer::clap::EventEmitter::emitMidi2Ump(out_ev, s, 0, ump_off);
 
                 inst->state.active_note_id = -1;

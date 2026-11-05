@@ -39,6 +39,7 @@ public:
         uint32_t sample_offset,
         int32_t note_id,
         int16_t key,
+        double release_velocity = 0.0,
         int16_t channel = 0,
         uint16_t port_index = 0)
     {
@@ -54,7 +55,7 @@ public:
         ev.port_index = port_index;
         ev.channel = channel;
         ev.key = key;
-        ev.velocity = 0.0;
+        ev.velocity = release_velocity;
 
         return out->try_push(out, &ev.header);
     }
