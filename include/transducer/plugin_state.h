@@ -8,6 +8,7 @@
 #include <transducer/dsp/articulation_classifier.h>
 #include <transducer/dsp/vibrato_detector.h>
 #include <transducer/voice/voice_allocator.h>
+#include <transducer/params/parameter_manager.h>
 #include <transducer/common/thread_check.h>
 #include <cstdint>
 
@@ -22,6 +23,7 @@ struct PluginState {
     dsp::ArticulationClassifier articulation_classifier{};
     dsp::VibratoDetector vibrato_detector{};
     voice::VoiceAllocator voice_allocator{};
+    params::ParameterManager param_manager{};
     common::ThreadCheck thread_check{};
 
     double sample_rate{48000.0};

@@ -93,6 +93,66 @@ static const clap_plugin_note_ports_t s_note_ports_ext = {
     clap_note_ports_get
 };
 
+// Params extension
+static uint32_t clap_params_count(const clap_plugin_t* plugin) {
+    auto* inst = static_cast<PluginInstance*>(plugin->plugin_data);
+    return inst->state.param_manager.get_param_count();
+}
+
+static bool clap_params_get_info(const clap_plugin_t* plugin, uint32_t param_index, clap_param_info_t* param_info) {
+    auto* inst = static_cast<PluginInstance*>(plugin->plugin_data);
+    return inst->state.param_manager.get_info(param_index, param_info);
+}
+
+static bool clap_params_get_value(const clap_plugin_t* plugin, clap_id param_id, double* out_value) {
+    if (!out_value) return false;
+    auto* inst = static_cast<PluginInstance*>(plugin->plugin_data);
+    *out_value = inst->state.param_manager.get_value(param_id);
+    return true;
+}
+
+static bool clap_params_value_to_text(
+    const clap_plugin_t* plugin, clap_id param_id, double value, char* out_buffer, uint32_t out_buffer_capacity)
+{
+    auto* inst = static_cast<PluginInstance*>(plugin->plugin_data);
+    return inst->state.param_manager.value_to_text(param_id, value, out_buffer, out_buffer_capacity);
+}
+
+static bool clap_params_text_to_value(
+    const clap_plugin_t* plugin, clap_id param_id, const char* param_value_text, double* out_value)
+{
+    (void)plugin;
+    (void)param_id;
+    if (!param_value_text || !out_value) return false;
+    *out_value = std::atof(param_value_text);
+    return true;
+}
+
+static void clap_params_flush(
+    const clap_plugin_t* plugin, const clap_input_events_t* in, const clap_output_events_t* out)
+{
+    (void)out;
+    auto* inst = static_cast<PluginInstance*>(plugin->plugin_data);
+    if (!in || !in->size) return;
+    uint32_t count = in->size(in);
+    for (uint32_t i = 0; i < count; ++i) {
+        const clap_event_header_t* hdr = in->get(in, i);
+        if (hdr && hdr->space_id == CLAP_CORE_EVENT_SPACE_ID && hdr->type == CLAP_EVENT_PARAM_VALUE) {
+            const auto* ev = reinterpret_cast<const clap_event_param_value_t*>(hdr);
+            inst->state.param_manager.set_value(ev->param_id, ev->value);
+        }
+    }
+}
+
+static const clap_plugin_params_t s_params_ext = {
+    clap_params_count,
+    clap_params_get_info,
+    clap_params_get_value,
+    clap_params_value_to_text,
+    clap_params_text_to_value,
+    clap_params_flush
+};
+
 // Plugin lifecycle
 static bool plugin_init(const clap_plugin_t* plugin) {
     auto* inst = static_cast<PluginInstance*>(plugin->plugin_data);
@@ -275,6 +335,9 @@ static const void* plugin_get_extension(const clap_plugin_t* plugin, const char*
     }
     if (std::strcmp(id, CLAP_EXT_NOTE_PORTS) == 0) {
         return &s_note_ports_ext;
+    }
+    if (std::strcmp(id, CLAP_EXT_PARAMS) == 0) {
+        return &s_params_ext;
     }
     return nullptr;
 }

@@ -9,6 +9,7 @@ add_executable(transducer_tests
     test_brightness_estimator.cpp
     test_articulation_classifier.cpp
     test_vibrato_detector.cpp
+    test_parameter_manager.cpp
     test_ump_builder.cpp
     test_event_emitter.cpp
     test_plugin_lifecycle.cpp
