@@ -6,6 +6,7 @@
 #include <transducer/dsp/release_velocity_estimator.h>
 #include <transducer/dsp/brightness_estimator.h>
 #include <transducer/dsp/articulation_classifier.h>
+#include <transducer/dsp/vibrato_detector.h>
 #include <transducer/voice/voice_allocator.h>
 #include <transducer/common/thread_check.h>
 #include <cstdint>
@@ -19,6 +20,7 @@ struct PluginState {
     dsp::ReleaseVelocityEstimator release_velocity{};
     dsp::BrightnessEstimator brightness_estimator{};
     dsp::ArticulationClassifier articulation_classifier{};
+    dsp::VibratoDetector vibrato_detector{};
     voice::VoiceAllocator voice_allocator{};
     common::ThreadCheck thread_check{};
 
@@ -39,6 +41,7 @@ struct PluginState {
         release_velocity.reset();
         brightness_estimator.reset();
         articulation_classifier.reset();
+        vibrato_detector.reset();
         voice_allocator.reset();
         active_note_id = -1;
         active_key = -1;

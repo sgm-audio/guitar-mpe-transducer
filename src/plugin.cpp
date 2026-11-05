@@ -241,6 +241,7 @@ static clap_process_status plugin_process(const clap_plugin_t* plugin, const cla
 
             // Continuous Tuning & Pressure Modulation
             if (inst->state.active_note_id != -1 && pitch.is_valid) {
+                inst->state.vibrato_detector.process(continuous_midi);
                 float semitone_bend = continuous_midi - static_cast<float>(inst->state.active_key);
 
                 // CLAP Note Expression Tuning (microtonal bend)
