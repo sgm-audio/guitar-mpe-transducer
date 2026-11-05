@@ -2,6 +2,7 @@
 
 #include <transducer/dsp/transient_detector.h>
 #include <transducer/dsp/yin_pitch_tracker.h>
+#include <transducer/dsp/pitch_continuity.h>
 #include <transducer/common/thread_check.h>
 #include <cstdint>
 
@@ -10,6 +11,7 @@ namespace transducer {
 struct PluginState {
     dsp::TransientDetector transient_detector{0.012f};
     dsp::YinPitchTracker pitch_tracker{0.20f};
+    dsp::PitchContinuityFilter pitch_continuity{};
     common::ThreadCheck thread_check{};
 
     double sample_rate{48000.0};
@@ -25,6 +27,7 @@ struct PluginState {
     void reset() {
         transient_detector.reset();
         pitch_tracker.reset();
+        pitch_continuity.reset();
         active_note_id = -1;
         active_key = -1;
     }

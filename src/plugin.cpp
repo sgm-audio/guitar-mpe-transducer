@@ -171,6 +171,8 @@ static clap_process_status plugin_process(const clap_plugin_t* plugin, const cla
 
         if (pitch_opt.has_value()) {
             const auto& pitch = *pitch_opt;
+            float continuous_midi = inst->state.pitch_continuity.process(
+                pitch.midi_note, pitch.confidence, pitch.is_valid);
 
             // Note Off / String decay check
             if (trans_res.envelope < 0.002f && inst->state.active_note_id != -1) {
@@ -192,7 +194,7 @@ static clap_process_status plugin_process(const clap_plugin_t* plugin, const cla
                         out_ev, s, inst->state.active_note_id, inst->state.active_key);
                 }
 
-                inst->state.active_key = static_cast<int16_t>(std::round(pitch.midi_note));
+                inst->state.active_key = static_cast<int16_t>(std::round(continuous_midi));
                 inst->state.active_note_id = ++inst->state.next_note_id;
 
                 transducer::clap::EventEmitter::emitNoteOn(
@@ -205,7 +207,7 @@ static clap_process_status plugin_process(const clap_plugin_t* plugin, const cla
 
             // Continuous Tuning & Pressure Modulation
             if (inst->state.active_note_id != -1 && pitch.is_valid) {
-                float semitone_bend = pitch.midi_note - static_cast<float>(inst->state.active_key);
+                float semitone_bend = continuous_midi - static_cast<float>(inst->state.active_key);
 
                 // CLAP Note Expression Tuning (microtonal bend)
                 transducer::clap::EventEmitter::emitTuningExpression(
