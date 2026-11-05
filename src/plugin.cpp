@@ -194,7 +194,10 @@ static clap_process_status plugin_process(const clap_plugin_t* plugin, const cla
         float brightness = inst->state.brightness_estimator.process(
             sample, static_cast<float>(inst->state.sample_rate));
 
-        // 3. Run YIN pitch tracker
+        // 3. Feed articulation classifier
+        inst->state.articulation_classifier.feedSample(trans_res.envelope, brightness);
+
+        // 4. Run YIN pitch tracker
         auto pitch_opt = inst->state.pitch_tracker.processSample(
             sample, static_cast<float>(inst->state.sample_rate));
 
@@ -219,6 +222,7 @@ static clap_process_status plugin_process(const clap_plugin_t* plugin, const cla
 
             // Note On Pluck Trigger
             if (trans_res.onset_detected && pitch.is_valid) {
+                inst->state.articulation_classifier.reset();
                 if (inst->state.active_note_id != -1) {
                     transducer::clap::EventEmitter::emitNoteOff(
                         out_ev, s, inst->state.active_note_id, inst->state.active_key);
