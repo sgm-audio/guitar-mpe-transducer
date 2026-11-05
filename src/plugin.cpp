@@ -154,7 +154,32 @@ static clap_process_status plugin_process(const clap_plugin_t* plugin, const cla
     }
 
     const uint32_t frames = process->frames_count;
+    const clap_input_events_t* in_ev = process->in_events;
     const clap_output_events_t* out_ev = process->out_events;
+
+    // Process incoming keyboard note events from controller
+    if (in_ev && in_ev->size) {
+        uint32_t num_events = in_ev->size(in_ev);
+        for (uint32_t i = 0; i < num_events; ++i) {
+            const clap_event_header_t* hdr = in_ev->get(in_ev, i);
+            if (hdr && hdr->space_id == CLAP_CORE_EVENT_SPACE_ID) {
+                if (hdr->type == CLAP_EVENT_NOTE_ON) {
+                    const auto* on = reinterpret_cast<const clap_event_note_t*>(hdr);
+                    inst->state.voice_allocator.onKeyNoteOn(
+                        on->note_id, on->key, static_cast<float>(on->velocity), on->channel);
+                    if (out_ev && out_ev->try_push) {
+                        out_ev->try_push(out_ev, hdr); // Forward keyboard event
+                    }
+                } else if (hdr->type == CLAP_EVENT_NOTE_OFF) {
+                    const auto* off = reinterpret_cast<const clap_event_note_t*>(hdr);
+                    inst->state.voice_allocator.onKeyNoteOff(off->note_id, off->key, off->channel);
+                    if (out_ev && out_ev->try_push) {
+                        out_ev->try_push(out_ev, hdr);
+                    }
+                }
+            }
+        }
+    }
 
     for (uint32_t s = 0; s < frames; ++s) {
         float sample = in_audio ? in_audio[s] : 0.0f;

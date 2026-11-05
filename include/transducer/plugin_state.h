@@ -4,6 +4,7 @@
 #include <transducer/dsp/yin_pitch_tracker.h>
 #include <transducer/dsp/pitch_continuity.h>
 #include <transducer/dsp/release_velocity_estimator.h>
+#include <transducer/voice/voice_allocator.h>
 #include <transducer/common/thread_check.h>
 #include <cstdint>
 
@@ -14,6 +15,7 @@ struct PluginState {
     dsp::YinPitchTracker pitch_tracker{0.20f};
     dsp::PitchContinuityFilter pitch_continuity{};
     dsp::ReleaseVelocityEstimator release_velocity{};
+    voice::VoiceAllocator voice_allocator{};
     common::ThreadCheck thread_check{};
 
     double sample_rate{48000.0};
@@ -31,6 +33,7 @@ struct PluginState {
         pitch_tracker.reset();
         pitch_continuity.reset();
         release_velocity.reset();
+        voice_allocator.reset();
         active_note_id = -1;
         active_key = -1;
     }
