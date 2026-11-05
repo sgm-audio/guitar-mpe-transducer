@@ -14,6 +14,7 @@ constexpr clap_id kParamBendRange = 0;
 constexpr clap_id kParamTransientSensitivity = 1;
 constexpr clap_id kParamGateThreshold = 2;
 constexpr clap_id kParamRoutingMode = 3;
+constexpr uint32_t kNumParameters = 4;
 
 struct AudioParamsSnapshot {
     float bend_range{48.0f};

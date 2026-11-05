@@ -43,6 +43,13 @@ TEST_CASE("CLAP plugin descriptor and lifecycle initialization", "[clap][lifecyc
     REQUIRE((out_port_info.supported_dialects & CLAP_NOTE_DIALECT_CLAP) != 0);
     REQUIRE((out_port_info.supported_dialects & CLAP_NOTE_DIALECT_MIDI2) != 0);
 
+    // State extension
+    const clap_plugin_state_t* state_ext = static_cast<const clap_plugin_state_t*>(
+        plug->get_extension(plug, CLAP_EXT_STATE));
+    REQUIRE(state_ext != nullptr);
+    REQUIRE(state_ext->save != nullptr);
+    REQUIRE(state_ext->load != nullptr);
+
     plug->deactivate(plug);
     plug->destroy(plug);
     clap_entry.deinit();

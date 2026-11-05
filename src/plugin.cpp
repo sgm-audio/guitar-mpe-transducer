@@ -2,6 +2,7 @@
 #include <transducer/plugin_state.h>
 #include <transducer/clap/event_emitter.h>
 #include <transducer/midi2/ump_builder.h>
+#include <transducer/state/state_serializer.h>
 #include <cstring>
 #include <cmath>
 #include <algorithm>
@@ -151,6 +152,22 @@ static const clap_plugin_params_t s_params_ext = {
     clap_params_value_to_text,
     clap_params_text_to_value,
     clap_params_flush
+};
+
+// State extension
+static bool clap_state_save(const clap_plugin_t* plugin, const clap_ostream_t* stream) {
+    auto* inst = static_cast<PluginInstance*>(plugin->plugin_data);
+    return transducer::state::StateSerializer::serialize(inst->state.param_manager, stream);
+}
+
+static bool clap_state_load(const clap_plugin_t* plugin, const clap_istream_t* stream) {
+    auto* inst = static_cast<PluginInstance*>(plugin->plugin_data);
+    return transducer::state::StateSerializer::deserialize(inst->state.param_manager, stream);
+}
+
+static const clap_plugin_state_t s_state_ext = {
+    clap_state_save,
+    clap_state_load
 };
 
 // Plugin lifecycle
@@ -338,6 +355,9 @@ static const void* plugin_get_extension(const clap_plugin_t* plugin, const char*
     }
     if (std::strcmp(id, CLAP_EXT_PARAMS) == 0) {
         return &s_params_ext;
+    }
+    if (std::strcmp(id, CLAP_EXT_STATE) == 0) {
+        return &s_state_ext;
     }
     return nullptr;
 }
