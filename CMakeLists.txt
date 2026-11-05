@@ -14,6 +14,7 @@ enable_testing()
 # Compiler warnings
 if(MSVC)
     add_compile_options(/W4 /permissive- /wd4324)
+    add_compile_definitions(_CRT_SECURE_NO_WARNINGS)
 else()
     add_compile_options(-Wall -Wextra -Wpedantic)
 endif()
@@ -26,6 +27,7 @@ include_directories(include)
 
 # Transducer CLAP plugin library
 add_library(guitar_mpe_transducer MODULE
+    src/plugin.cpp
     src/plugin_entry.cpp
 )
 
@@ -37,6 +39,7 @@ target_link_libraries(guitar_mpe_transducer
 target_include_directories(guitar_mpe_transducer
     PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
 
 set_target_properties(guitar_mpe_transducer PROPERTIES

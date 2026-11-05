@@ -5,6 +5,9 @@ add_executable(transducer_tests
     test_yin_pitch_tracker.cpp
     test_ump_builder.cpp
     test_event_emitter.cpp
+    test_plugin_lifecycle.cpp
+    ../src/plugin.cpp
+    ../src/plugin_entry.cpp
 )
 
 target_link_libraries(transducer_tests
@@ -16,6 +19,7 @@ target_link_libraries(transducer_tests
 target_include_directories(transducer_tests
     PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/../include
+        ${CMAKE_CURRENT_SOURCE_DIR}/../src
 )
 
 target_compile_features(transducer_tests PRIVATE cxx_std_20)
