@@ -87,11 +87,13 @@ GuitarTransducerAudioProcessorEditor::GuitarTransducerAudioProcessorEditor(
       layout_tree_(createLayoutTree()),
       telemetry_meter_(p.telemetry())
 {
+    setLookAndFeel(&look_and_feel_);
     interpreter_.autoAttachParameters(processor_.apvts());
     root_item_ = interpreter_.interpret(layout_tree_);
 
     if (root_item_ != nullptr) {
         if (auto* root_comp = root_item_->getComponent()) {
+            root_comp->setLookAndFeel(&look_and_feel_);
             addAndMakeVisible(root_comp);
             telemetry_slot_ = root_comp->findChildWithID("telemetry-slot");
         }
@@ -118,4 +120,14 @@ void GuitarTransducerAudioProcessorEditor::resized()
     } else {
         telemetry_meter_.setBounds(getLocalBounds().reduced(16).removeFromTop(106));
     }
+}
+
+GuitarTransducerAudioProcessorEditor::~GuitarTransducerAudioProcessorEditor()
+{
+    if (root_item_ != nullptr) {
+        if (auto* root_comp = root_item_->getComponent()) {
+            root_comp->setLookAndFeel(nullptr);
+        }
+    }
+    setLookAndFeel(nullptr);
 }
