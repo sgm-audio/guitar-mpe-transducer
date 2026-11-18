@@ -235,32 +235,50 @@ static clap_process_status plugin_process(const clap_plugin_t* plugin, const cla
     const clap_input_events_t* in_ev = process->in_events;
     const clap_output_events_t* out_ev = process->out_events;
 
-    // Process incoming keyboard note events from controller
-    if (in_ev && in_ev->size) {
-        uint32_t num_events = in_ev->size(in_ev);
-        for (uint32_t i = 0; i < num_events; ++i) {
-            const clap_event_header_t* hdr = in_ev->get(in_ev, i);
-            if (hdr && hdr->space_id == CLAP_CORE_EVENT_SPACE_ID) {
-                if (hdr->type == CLAP_EVENT_NOTE_ON) {
-                    const auto* on = reinterpret_cast<const clap_event_note_t*>(hdr);
-                    inst->state.voice_allocator.onKeyNoteOn(
-                        on->note_id, on->key, static_cast<float>(on->velocity), on->channel);
-                    if (out_ev && out_ev->try_push) {
-                        out_ev->try_push(out_ev, hdr); // Forward keyboard event
-                    }
-                } else if (hdr->type == CLAP_EVENT_NOTE_OFF) {
-                    const auto* off = reinterpret_cast<const clap_event_note_t*>(hdr);
-                    inst->state.voice_allocator.onKeyNoteOff(off->note_id, off->key, off->channel);
-                    if (out_ev && out_ev->try_push) {
-                        out_ev->try_push(out_ev, hdr);
-                    }
-                }
-            }
-        }
-    }
-
     auto& st = inst->state;
     const float sr = static_cast<float>(st.sample_rate);
+
+    // Apply host parameters to the DSP (wait-free atomic reads; cheap enough per event/block).
+    auto apply_params = [&]() {
+        const auto snap = st.param_manager.get_audio_snapshot();
+        st.transient_detector.set_threshold(snap.transient_sensitivity);
+        st.gate_threshold = snap.gate_threshold;
+        st.pitch_bend_range = snap.bend_range;
+        st.voice_allocator.set_routing_mode(static_cast<transducer::voice::RoutingMode>(snap.routing_mode));
+    };
+    apply_params();
+
+    // Input events are time-ordered. They are handled between samples at their own timestamp so
+    // that forwarded keyboard events and generated events leave in non-decreasing time order,
+    // and parameter changes take effect at the right sample.
+    const uint32_t num_events = (in_ev && in_ev->size) ? in_ev->size(in_ev) : 0;
+    uint32_t next_event = 0;
+    auto handle_event = [&](const clap_event_header_t* hdr) {
+        if (!hdr || hdr->space_id != CLAP_CORE_EVENT_SPACE_ID) return;
+        switch (hdr->type) {
+        case CLAP_EVENT_NOTE_ON: {
+            const auto* on = reinterpret_cast<const clap_event_note_t*>(hdr);
+            st.voice_allocator.onKeyNoteOn(
+                on->note_id, on->key, static_cast<float>(on->velocity), on->channel);
+            if (out_ev && out_ev->try_push) out_ev->try_push(out_ev, hdr); // forward keyboard event
+            break;
+        }
+        case CLAP_EVENT_NOTE_OFF: {
+            const auto* off = reinterpret_cast<const clap_event_note_t*>(hdr);
+            st.voice_allocator.onKeyNoteOff(off->note_id, off->key, off->channel);
+            if (out_ev && out_ev->try_push) out_ev->try_push(out_ev, hdr);
+            break;
+        }
+        case CLAP_EVENT_PARAM_VALUE: {
+            const auto* pv = reinterpret_cast<const clap_event_param_value_t*>(hdr);
+            st.param_manager.set_value(pv->param_id, pv->value);
+            apply_params();
+            break;
+        }
+        default:
+            break;
+        }
+    };
 
     auto end_active_note = [&](uint32_t s, double release_vel) {
         if (st.active_note_id == -1) return;
@@ -274,6 +292,13 @@ static clap_process_status plugin_process(const clap_plugin_t* plugin, const cla
     };
 
     for (uint32_t s = 0; s < frames; ++s) {
+        while (next_event < num_events) {
+            const clap_event_header_t* hdr = in_ev->get(in_ev, next_event);
+            if (hdr && hdr->time > s) break;
+            handle_event(hdr);
+            ++next_event;
+        }
+
         float sample = in_audio ? in_audio[s] : 0.0f;
         if (out_audio) {
             out_audio[s] = sample; // Pass-thru guitar monitor
@@ -312,7 +337,7 @@ static clap_process_status plugin_process(const clap_plugin_t* plugin, const cla
 
         // Note Off / string decay check
         float rel_vel = st.release_velocity.process(trans_res.envelope);
-        if (trans_res.envelope < 0.002f) {
+        if (trans_res.envelope < st.gate_threshold) {
             st.onset_resolver.reset();
             end_active_note(s, rel_vel);
         }
@@ -352,6 +377,11 @@ static clap_process_status plugin_process(const clap_plugin_t* plugin, const cla
                 0, 0, static_cast<uint8_t>(st.active_key), semitone_bend, st.pitch_bend_range);
             transducer::clap::EventEmitter::emitMidi2Ump(out_ev, s, 0, ump_bend);
         }
+    }
+
+    // Events stamped at/after the block end (should not happen) are still honoured.
+    while (next_event < num_events) {
+        handle_event(in_ev->get(in_ev, next_event++));
     }
 
     return CLAP_PROCESS_CONTINUE;

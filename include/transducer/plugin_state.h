@@ -38,6 +38,7 @@ struct PluginState {
     int16_t active_key{-1};
     int32_t next_note_id{100};
 
+    float gate_threshold{0.002f};
     float pitch_bend_range{48.0f}; // Default 48 semitones MPE/CLAP standard
 
     void reset() {

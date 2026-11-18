@@ -73,43 +73,47 @@ private:
             return est;
         }
 
-        // 1. Difference function & 2. Cumulative Mean Normalized Difference Function (CMNDF)
-        yin_buf_[0] = 1.0f;
-        float running_sum = 0.0f;
-
-        // Min lag = 18 (~2666Hz @ 48kHz), Max lag = 900 (~53Hz @ 48kHz)
+        // Linearise the ring (oldest -> newest) so the inner loops are unmasked and vectorisable.
+        // Needed history: window W = max_tau plus lags up to max_tau.
         const int min_tau = std::max(10, static_cast<int>(sample_rate / 3000.0f));
-        const int max_tau = std::min({kMaxTau - 2, static_cast<int>(sample_rate / 50.0f),
-                                      valid_history_ / 2});
+        const int full_max_tau = std::min(kMaxTau - 2, static_cast<int>(sample_rate / 50.0f));
+        const int max_tau = std::min({full_max_tau, valid_history_ / 2});
         if (max_tau <= min_tau + 2) {
             return est; // not enough post-onset history yet
         }
+        const int win = max_tau;
+        const int len = win + max_tau;
+        {
+            const int start = (write_pos_ - len) & (kWinSize - 1);
+            const int first = std::min(len, kWinSize - start);
+            std::copy_n(ring_.data() + start, first, lin_.data());
+            if (first < len) std::copy_n(ring_.data(), len - first, lin_.data() + first);
+        }
+        const float* recent = lin_.data() + max_tau; // newest `win` samples
 
+        // 1-2. Difference function + CMNDF, computed lag by lag. Stops at the first local minimum
+        // below threshold (standard YIN early exit), so cost scales with the period, not max_tau.
+        yin_buf_[0] = 1.0f;
+        float running_sum = 0.0f;
+        int best_tau = -1;
+        int computed = 0;
         for (int tau = 1; tau <= max_tau; ++tau) {
-            float diff = 0.0f;
-            for (int i = 0; i < max_tau; ++i) {
-                float a = ring_[(write_pos_ - 1 - i) & (kWinSize - 1)];
-                float b = ring_[(write_pos_ - 1 - i - tau) & (kWinSize - 1)];
-                float delta = a - b;
-                diff += delta * delta;
-            }
+            const float diff = sqdiff(recent, recent - tau, win);
             running_sum += diff;
             yin_buf_[tau] = (running_sum > 1e-9f) ? (diff * tau / running_sum) : 1.0f;
-        }
+            computed = tau;
 
-        // 3. Absolute threshold search
-        int best_tau = -1;
-        for (int tau = min_tau; tau < max_tau; ++tau) {
-            if (yin_buf_[tau] < threshold_) {
-                while (tau + 1 < max_tau && yin_buf_[tau + 1] < yin_buf_[tau]) {
-                    ++tau;
-                }
-                best_tau = tau;
-                break;
+            if (tau < min_tau) continue;
+            if (best_tau < 0) {
+                if (yin_buf_[tau] < threshold_) best_tau = tau;
+            } else if (yin_buf_[tau] < yin_buf_[best_tau]) {
+                best_tau = tau; // still descending into the minimum
+            } else {
+                break;          // passed the local minimum; yin_buf_[best_tau + 1] is valid
             }
         }
 
-        // If no value fell below threshold, find global minimum
+        // No value fell below threshold: global minimum over the fully computed range.
         if (best_tau == -1) {
             float min_val = 1.0f;
             for (int tau = min_tau; tau < max_tau; ++tau) {
@@ -119,14 +123,13 @@ private:
                 }
             }
             if (min_val > 0.40f) {
-                // Not periodic enough
-                return est;
+                return est; // not periodic enough
             }
         }
+        (void)computed;
 
         // Right after an onset the analysis window is short. Accept a period only if the window
         // spans at least 1.5 periods; shorter windows give consistently biased (wrong-semitone) lags.
-        const int full_max_tau = std::min(kMaxTau - 2, static_cast<int>(sample_rate / 50.0f));
         if (max_tau < full_max_tau && best_tau * 3 > max_tau * 2) {
             return est;
         }
@@ -154,7 +157,26 @@ private:
         return est;
     }
 
+    // sum_j (a[j]-b[j])^2 with independent accumulators so the compiler can vectorise.
+    static float sqdiff(const float* a, const float* b, int n) {
+        float acc[8] = {};
+        int j = 0;
+        for (; j + 8 <= n; j += 8) {
+            for (int k = 0; k < 8; ++k) {
+                const float d = a[j + k] - b[j + k];
+                acc[k] += d * d;
+            }
+        }
+        float tail = 0.0f;
+        for (; j < n; ++j) {
+            const float d = a[j] - b[j];
+            tail += d * d;
+        }
+        return ((acc[0] + acc[1]) + (acc[2] + acc[3])) + ((acc[4] + acc[5]) + (acc[6] + acc[7])) + tail;
+    }
+
     float threshold_{0.20f};
+    alignas(64) std::array<float, kWinSize> lin_{};
     alignas(64) std::array<float, kWinSize> ring_{};
     alignas(64) std::array<float, kMaxTau> yin_buf_{};
     int write_pos_{0};

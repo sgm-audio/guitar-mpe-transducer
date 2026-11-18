@@ -1,7 +1,7 @@
 #pragma once
 
 #include <clap/clap.h>
-#include <transducer/common/double_buffer_seqlock.h>
+#include <atomic>
 #include <array>
 #include <cstdint>
 #include <cmath>
@@ -26,12 +26,10 @@ struct AudioParamsSnapshot {
 
 class ParameterManager {
 public:
-    ParameterManager() {
-        AudioParamsSnapshot init_snap{};
-        auto* w = seqlock_.begin_write();
-        *w = init_snap;
-        seqlock_.end_write();
-    }
+    // One atomic per parameter: parameters are independent, so no cross-field consistency is
+    // needed. Wait-free for any number of writers (audio-thread events, main-thread state load)
+    // and readers, with no torn or default-substituted reads.
+    ParameterManager() = default;
 
     uint32_t get_param_count() const { return 4; }
 
@@ -93,27 +91,22 @@ public:
     }
 
     void set_value(clap_id param_id, double value) {
-        AudioParamsSnapshot snap = get_audio_snapshot();
         switch (param_id) {
         case kParamBendRange:
-            snap.bend_range = static_cast<float>(std::clamp(value, 1.0, 96.0));
+            bend_range_.store(static_cast<float>(std::clamp(value, 1.0, 96.0)), std::memory_order_relaxed);
             break;
         case kParamTransientSensitivity:
-            snap.transient_sensitivity = static_cast<float>(std::clamp(value, 0.001, 0.05));
+            transient_sensitivity_.store(static_cast<float>(std::clamp(value, 0.001, 0.05)), std::memory_order_relaxed);
             break;
         case kParamGateThreshold:
-            snap.gate_threshold = static_cast<float>(std::clamp(value, 0.0005, 0.02));
+            gate_threshold_.store(static_cast<float>(std::clamp(value, 0.0005, 0.02)), std::memory_order_relaxed);
             break;
         case kParamRoutingMode:
-            snap.routing_mode = static_cast<uint32_t>(std::clamp(value, 0.0, 2.0));
+            routing_mode_.store(static_cast<uint32_t>(std::clamp(std::round(value), 0.0, 2.0)), std::memory_order_relaxed);
             break;
         default:
-            return;
+            break;
         }
-
-        auto* w = seqlock_.begin_write();
-        *w = snap;
-        seqlock_.end_write();
     }
 
     bool value_to_text(clap_id param_id, double value, char* out_buf, uint32_t out_buf_size) const {
@@ -142,16 +135,18 @@ public:
 
     AudioParamsSnapshot get_audio_snapshot() const {
         AudioParamsSnapshot snap{};
-        for (int retry = 0; retry < 5; ++retry) {
-            if (seqlock_.read(snap)) {
-                return snap;
-            }
-        }
+        snap.bend_range = bend_range_.load(std::memory_order_relaxed);
+        snap.transient_sensitivity = transient_sensitivity_.load(std::memory_order_relaxed);
+        snap.gate_threshold = gate_threshold_.load(std::memory_order_relaxed);
+        snap.routing_mode = routing_mode_.load(std::memory_order_relaxed);
         return snap;
     }
 
 private:
-    common::DoubleBufferSeqLock<AudioParamsSnapshot> seqlock_;
+    std::atomic<float> bend_range_{AudioParamsSnapshot{}.bend_range};
+    std::atomic<float> transient_sensitivity_{AudioParamsSnapshot{}.transient_sensitivity};
+    std::atomic<float> gate_threshold_{AudioParamsSnapshot{}.gate_threshold};
+    std::atomic<uint32_t> routing_mode_{AudioParamsSnapshot{}.routing_mode};
 };
 
 } // namespace transducer::params
