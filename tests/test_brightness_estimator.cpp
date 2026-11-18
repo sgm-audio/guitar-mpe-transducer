@@ -56,3 +56,26 @@ TEST_CASE("EventEmitter emits CLAP_NOTE_EXPRESSION_BRIGHTNESS", "[clap][brightne
     REQUIRE(mock.stored.expression_id == CLAP_NOTE_EXPRESSION_BRIGHTNESS);
     REQUIRE_THAT(mock.stored.value, Catch::Matchers::WithinAbs(0.82, 1e-4));
 }
+
+TEST_CASE("BrightnessEstimator is smooth across low-note cycles and freezes in silence", "[dsp][brightness]") {
+    using namespace transducer::dsp;
+    BrightnessEstimator b;
+    constexpr float kSr = 48000.0f;
+    constexpr float kTwoPi = 6.28318530718f;
+
+    for (int i = 0; i < 2000; ++i) {
+        b.process(0.5f * std::sin(kTwoPi * 82.41f * static_cast<float>(i) / kSr), kSr);
+    }
+    float lo = 1.0f, hi = 0.0f;
+    for (int i = 2000; i < 2600; ++i) {
+        float v = b.process(0.5f * std::sin(kTwoPi * 82.41f * static_cast<float>(i) / kSr), kSr);
+        lo = std::min(lo, v);
+        hi = std::max(hi, v);
+    }
+    REQUIRE(hi - lo < 0.01f); // no zero-crossing spikes
+
+    for (int i = 0; i < 4000; ++i) b.process(0.0f, kSr); // fall below floor
+    float frozen = b.brightness();
+    for (int i = 0; i < 4000; ++i) b.process(0.0f, kSr);
+    REQUIRE_THAT(b.brightness(), Catch::Matchers::WithinAbs(frozen, 1e-6f));
+}

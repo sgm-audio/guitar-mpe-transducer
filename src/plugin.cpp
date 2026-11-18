@@ -3,7 +3,7 @@
 #include <transducer/clap/event_emitter.h>
 #include <transducer/midi2/ump_builder.h>
 #include <transducer/state/state_serializer.h>
-#include <transducer/dsp/onset_resolver.h>
+#include <transducer/common/scoped_no_denormals.h>
 #include <cstring>
 #include <cmath>
 #include <algorithm>
@@ -55,8 +55,8 @@ static bool clap_audio_ports_get(
         std::strncpy(info->name, "Guitar Thru", sizeof(info->name) - 1);
         info->flags = 0;
     }
-    info->channel_count = 1;
-    info->port_type = CLAP_PORT_MONO;
+    info->channel_count = transducer::PluginState::kMaxStrings;
+    info->port_type = nullptr; // up to 6 discrete string channels (mono hosts may connect ch 0 only)
     info->in_place_pair = 0;
     return true;
 }
@@ -214,43 +214,94 @@ static void plugin_reset(const clap_plugin_t* plugin) {
 }
 
 static clap_process_status plugin_process(const clap_plugin_t* plugin, const clap_process_t* process) {
+    transducer::common::ScopedFlushDenormals flush_denormals;
+
     auto* inst = static_cast<PluginInstance*>(plugin->plugin_data);
-    inst->state.thread_check.mark_audio_thread();
+    auto& st = inst->state;
+    st.thread_check.mark_audio_thread();
 
     if (!process || process->frames_count == 0) {
         return CLAP_PROCESS_CONTINUE;
     }
 
-    const float* in_audio = nullptr;
-    if (process->audio_inputs_count > 0 && process->audio_inputs[0].channel_count > 0) {
-        in_audio = process->audio_inputs[0].data32[0];
-    }
-
-    float* out_audio = nullptr;
-    if (process->audio_outputs_count > 0 && process->audio_outputs[0].channel_count > 0) {
-        out_audio = process->audio_outputs[0].data32[0];
-    }
+    const uint32_t in_ch = (process->audio_inputs_count > 0) ? process->audio_inputs[0].channel_count : 0;
+    const uint32_t out_ch = (process->audio_outputs_count > 0) ? process->audio_outputs[0].channel_count : 0;
+    const uint32_t num_strings = std::min<uint32_t>(in_ch, transducer::PluginState::kMaxStrings);
 
     const uint32_t frames = process->frames_count;
     const clap_input_events_t* in_ev = process->in_events;
     const clap_output_events_t* out_ev = process->out_events;
 
-    auto& st = inst->state;
-    const float sr = static_cast<float>(st.sample_rate);
-
-    // Apply host parameters to the DSP (wait-free atomic reads; cheap enough per event/block).
     auto apply_params = [&]() {
         const auto snap = st.param_manager.get_audio_snapshot();
-        st.transient_detector.set_threshold(snap.transient_sensitivity);
-        st.gate_threshold = snap.gate_threshold;
+        transducer::dsp::StringPipeline::Config cfg;
+        cfg.transient_threshold = snap.transient_sensitivity;
+        cfg.gate_threshold = snap.gate_threshold;
+        cfg.chord_guard = (num_strings <= 1);
+        for (uint32_t c = 0; c < num_strings; ++c) {
+            st.strings[c].set_config(cfg);
+        }
         st.pitch_bend_range = snap.bend_range;
+        st.output_dialect = snap.output_dialect;
         st.voice_allocator.set_routing_mode(static_cast<transducer::voice::RoutingMode>(snap.routing_mode));
     };
     apply_params();
 
-    // Input events are time-ordered. They are handled between samples at their own timestamp so
-    // that forwarded keyboard events and generated events leave in non-decreasing time order,
-    // and parameter changes take effect at the right sample.
+    auto push_checked = [&](bool ok) {
+        if (!ok) ++st.dropped_events;
+    };
+
+    auto emit_core = [&](const transducer::dsp::CoreEvent& e) {
+        using T = transducer::dsp::CoreEvent::Type;
+        const int16_t ch = e.string_index;
+        const uint8_t u8ch = static_cast<uint8_t>(ch & 0xF);
+        const uint8_t u8key = static_cast<uint8_t>(std::clamp<int16_t>(e.key, 0, 127));
+
+        if (st.output_dialect == 1) {
+            switch (e.type) {
+            case T::kNoteOn:
+                push_checked(transducer::clap::EventEmitter::emitMidi2Ump(
+                    out_ev, e.offset, 0, transducer::midi2::UmpBuilder::makeNoteOn(0, u8ch, u8key, e.value)));
+                break;
+            case T::kNoteOff:
+                push_checked(transducer::clap::EventEmitter::emitMidi2Ump(
+                    out_ev, e.offset, 0, transducer::midi2::UmpBuilder::makeNoteOff(0, u8ch, u8key, e.value)));
+                break;
+            case T::kBend:
+                push_checked(transducer::clap::EventEmitter::emitMidi2Ump(
+                    out_ev, e.offset, 0,
+                    transducer::midi2::UmpBuilder::makePerNotePitchBend(0, u8ch, u8key, e.value, st.pitch_bend_range)));
+                break;
+            case T::kPressure:
+                push_checked(transducer::clap::EventEmitter::emitMidi2Ump(
+                    out_ev, e.offset, 0, transducer::midi2::UmpBuilder::makePolyPressure(0, u8ch, u8key, e.value)));
+                break;
+            case T::kBrightness:
+                break; // no standard per-note UMP brightness without registered controller assignment
+            }
+            return;
+        }
+
+        switch (e.type) {
+        case T::kNoteOn:
+            push_checked(transducer::clap::EventEmitter::emitNoteOn(out_ev, e.offset, e.note_id, e.key, e.value, ch));
+            break;
+        case T::kNoteOff:
+            push_checked(transducer::clap::EventEmitter::emitNoteOff(out_ev, e.offset, e.note_id, e.key, e.value, ch));
+            break;
+        case T::kBend:
+            push_checked(transducer::clap::EventEmitter::emitTuningExpression(out_ev, e.offset, e.note_id, e.key, e.value, ch));
+            break;
+        case T::kPressure:
+            push_checked(transducer::clap::EventEmitter::emitPressureExpression(out_ev, e.offset, e.note_id, e.key, e.value, ch));
+            break;
+        case T::kBrightness:
+            push_checked(transducer::clap::EventEmitter::emitBrightnessExpression(out_ev, e.offset, e.note_id, e.key, e.value, ch));
+            break;
+        }
+    };
+
+    // Input events are time-ordered; handle at their timestamp so output events stay time-ordered.
     const uint32_t num_events = (in_ev && in_ev->size) ? in_ev->size(in_ev) : 0;
     uint32_t next_event = 0;
     auto handle_event = [&](const clap_event_header_t* hdr) {
@@ -260,13 +311,13 @@ static clap_process_status plugin_process(const clap_plugin_t* plugin, const cla
             const auto* on = reinterpret_cast<const clap_event_note_t*>(hdr);
             st.voice_allocator.onKeyNoteOn(
                 on->note_id, on->key, static_cast<float>(on->velocity), on->channel);
-            if (out_ev && out_ev->try_push) out_ev->try_push(out_ev, hdr); // forward keyboard event
+            if (out_ev && out_ev->try_push) push_checked(out_ev->try_push(out_ev, hdr));
             break;
         }
         case CLAP_EVENT_NOTE_OFF: {
             const auto* off = reinterpret_cast<const clap_event_note_t*>(hdr);
             st.voice_allocator.onKeyNoteOff(off->note_id, off->key, off->channel);
-            if (out_ev && out_ev->try_push) out_ev->try_push(out_ev, hdr);
+            if (out_ev && out_ev->try_push) push_checked(out_ev->try_push(out_ev, hdr));
             break;
         }
         case CLAP_EVENT_PARAM_VALUE: {
@@ -280,17 +331,6 @@ static clap_process_status plugin_process(const clap_plugin_t* plugin, const cla
         }
     };
 
-    auto end_active_note = [&](uint32_t s, double release_vel) {
-        if (st.active_note_id == -1) return;
-        transducer::clap::EventEmitter::emitNoteOff(
-            out_ev, s, st.active_note_id, st.active_key, release_vel);
-        auto ump_off = transducer::midi2::UmpBuilder::makeNoteOff(
-            0, 0, static_cast<uint8_t>(st.active_key), static_cast<float>(release_vel));
-        transducer::clap::EventEmitter::emitMidi2Ump(out_ev, s, 0, ump_off);
-        st.active_note_id = -1;
-        st.active_key = -1;
-    };
-
     for (uint32_t s = 0; s < frames; ++s) {
         while (next_event < num_events) {
             const clap_event_header_t* hdr = in_ev->get(in_ev, next_event);
@@ -299,87 +339,19 @@ static clap_process_status plugin_process(const clap_plugin_t* plugin, const cla
             ++next_event;
         }
 
-        float sample = in_audio ? in_audio[s] : 0.0f;
-        if (out_audio) {
-            out_audio[s] = sample; // Pass-thru guitar monitor
+        for (uint32_t c = 0; c < out_ch; ++c) {
+            const float* src = (c < in_ch) ? process->audio_inputs[0].data32[c] : nullptr;
+            if (process->audio_outputs[0].data32[c]) {
+                process->audio_outputs[0].data32[c][s] = src ? src[s] : 0.0f;
+            }
         }
 
-        // 1. Run transient detector (onset flag lasts ONE sample; never gate it on the pitch hop)
-        auto trans_res = st.transient_detector.process(sample);
-
-        if (trans_res.onset_detected) {
-            // New pluck: pitch must be re-measured from post-onset audio only.
-            st.articulation_classifier.reset();
-            st.pitch_tracker.notify_onset();
-            st.pitch_continuity.reset();
-            st.onset_resolver.on_onset();
-        }
-        if (trans_res.velocity_ready) {
-            st.onset_resolver.on_velocity(trans_res.final_velocity);
-        }
-        st.onset_resolver.tick(); // unpitched hits time out without a note
-
-        // 2. Run brightness estimator
-        float brightness = st.brightness_estimator.process(sample, sr);
-
-        // 3. Feed articulation classifier
-        st.articulation_classifier.feedSample(trans_res.envelope, brightness);
-
-        // 4. Run YIN pitch tracker (one estimate per hop)
-        auto pitch_opt = st.pitch_tracker.processSample(sample, sr);
-        if (!pitch_opt.has_value()) {
-            continue;
-        }
-
-        const auto& pitch = *pitch_opt;
-        float continuous_midi = st.pitch_continuity.process(
-            pitch.midi_note, pitch.confidence, pitch.is_valid);
-
-        // Note Off / string decay check
-        float rel_vel = st.release_velocity.process(trans_res.envelope);
-        if (trans_res.envelope < st.gate_threshold) {
-            st.onset_resolver.reset();
-            end_active_note(s, rel_vel);
-        }
-
-        // Note On: only once velocity is known and post-onset pitch has settled
-        transducer::dsp::ResolvedNote resolved{};
-        if (st.onset_resolver.on_pitch(pitch.is_valid, continuous_midi, pitch.confidence, resolved)) {
-            end_active_note(s, 0.0);
-
-            st.active_key = resolved.key;
-            st.active_note_id = ++st.next_note_id;
-
-            transducer::clap::EventEmitter::emitNoteOn(
-                out_ev, s, st.active_note_id, st.active_key, resolved.velocity);
-
-            auto ump_on = transducer::midi2::UmpBuilder::makeNoteOn(
-                0, 0, static_cast<uint8_t>(st.active_key), resolved.velocity);
-            transducer::clap::EventEmitter::emitMidi2Ump(out_ev, s, 0, ump_on);
-        }
-
-        // Continuous tuning & pressure modulation (held while a new onset is unresolved)
-        if (st.active_note_id != -1 && pitch.is_valid && !st.onset_resolver.pending()) {
-            st.vibrato_detector.process(continuous_midi);
-            float semitone_bend = continuous_midi - static_cast<float>(st.active_key);
-
-            transducer::clap::EventEmitter::emitTuningExpression(
-                out_ev, s, st.active_note_id, st.active_key, semitone_bend);
-
-            double norm_press = std::clamp(static_cast<double>(trans_res.envelope) * 6.0, 0.0, 1.0);
-            transducer::clap::EventEmitter::emitPressureExpression(
-                out_ev, s, st.active_note_id, st.active_key, norm_press);
-
-            transducer::clap::EventEmitter::emitBrightnessExpression(
-                out_ev, s, st.active_note_id, st.active_key, brightness);
-
-            auto ump_bend = transducer::midi2::UmpBuilder::makePerNotePitchBend(
-                0, 0, static_cast<uint8_t>(st.active_key), semitone_bend, st.pitch_bend_range);
-            transducer::clap::EventEmitter::emitMidi2Ump(out_ev, s, 0, ump_bend);
+        for (uint32_t c = 0; c < num_strings; ++c) {
+            const float* src = process->audio_inputs[0].data32[c];
+            st.strings[c].process_sample(src ? src[s] : 0.0f, s, emit_core);
         }
     }
 
-    // Events stamped at/after the block end (should not happen) are still honoured.
     while (next_event < num_events) {
         handle_event(in_ev->get(in_ev, next_event++));
     }

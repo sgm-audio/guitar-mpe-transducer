@@ -64,27 +64,34 @@ public:
         return true;
     }
 
+    // Accepts states saved with fewer parameters (kLegacyNumParameters..kNumParameters); missing
+    // parameters keep their current/default values.
     static bool deserialize_from_buffer(params::ParameterManager& params,
                                         const void* in_buffer,
                                         size_t size) noexcept {
-        constexpr size_t required_size = sizeof(StateHeader) + params::kNumParameters * sizeof(ParamRecord);
-        if (size < required_size || !in_buffer) return false;
+        if (!in_buffer || size < sizeof(StateHeader)) return false;
 
         StateHeader header{};
         std::memcpy(&header, in_buffer, sizeof(StateHeader));
 
-        if (header.magic != kMagic || header.version != kVersion || header.num_params != params::kNumParameters) {
+        if (header.magic != kMagic || header.version != kVersion ||
+            header.num_params < params::kLegacyNumParameters ||
+            header.num_params > params::kNumParameters) {
             return false;
         }
 
-        const auto* records = reinterpret_cast<const ParamRecord*>(static_cast<const uint8_t*>(in_buffer) + sizeof(StateHeader));
-        uint32_t computed_checksum = calculate_checksum(reinterpret_cast<const uint8_t*>(records), sizeof(ParamRecord) * params::kNumParameters);
-        if (computed_checksum != header.checksum) {
+        const size_t records_size = static_cast<size_t>(header.num_params) * sizeof(ParamRecord);
+        if (size < sizeof(StateHeader) + records_size) return false;
+
+        const auto* bytes = static_cast<const uint8_t*>(in_buffer) + sizeof(StateHeader);
+        if (calculate_checksum(bytes, records_size) != header.checksum) {
             return false;
         }
 
-        for (uint32_t i = 0; i < params::kNumParameters; ++i) {
-            params.set_value(records[i].id, records[i].value);
+        for (uint32_t i = 0; i < header.num_params; ++i) {
+            ParamRecord rec{};
+            std::memcpy(&rec, bytes + i * sizeof(ParamRecord), sizeof(rec));
+            params.set_value(rec.id, rec.value);
         }
         return true;
     }
@@ -111,7 +118,7 @@ public:
             total_read += static_cast<size_t>(bytes);
         }
 
-        if (total_read < required_size) return false;
+        if (total_read < sizeof(StateHeader)) return false;
         return deserialize_from_buffer(params, buffer.data(), total_read);
     }
 };

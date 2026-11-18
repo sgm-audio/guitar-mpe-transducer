@@ -93,7 +93,7 @@ public:
             current_envelope = res.envelope;
 
             float b = brightness_estimator_.process(s, sample_rate_);
-            articulation_classifier_.feedSample(res.envelope, b);
+            articulation_classifier_.feed(s);
             pitch_tracker_.processSample(s, sample_rate_);
         }
 

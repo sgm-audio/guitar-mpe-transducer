@@ -15,13 +15,16 @@ constexpr clap_id kParamBendRange = 0;
 constexpr clap_id kParamTransientSensitivity = 1;
 constexpr clap_id kParamGateThreshold = 2;
 constexpr clap_id kParamRoutingMode = 3;
-constexpr uint32_t kNumParameters = 4;
+constexpr clap_id kParamOutputDialect = 4;   // 0 = CLAP note events, 1 = MIDI 2.0 UMP
+constexpr uint32_t kLegacyNumParameters = 4; // states saved before the dialect parameter existed
+constexpr uint32_t kNumParameters = 5;
 
 struct AudioParamsSnapshot {
     float bend_range{48.0f};
     float transient_sensitivity{0.012f};
     float gate_threshold{0.002f};
     uint32_t routing_mode{0}; // 0 = Direct, 1 = Target Highest, 2 = Target All
+    uint32_t output_dialect{0}; // 0 = CLAP note events/expressions, 1 = MIDI 2.0 UMP (never both)
 };
 
 class ParameterManager {
@@ -31,7 +34,7 @@ public:
     // and readers, with no torn or default-substituted reads.
     ParameterManager() = default;
 
-    uint32_t get_param_count() const { return 4; }
+    uint32_t get_param_count() const { return kNumParameters; }
 
     bool get_info(uint32_t index, clap_param_info_t* info) const {
         if (!info) return false;
@@ -74,6 +77,15 @@ public:
             info->max_value = 2.0;
             info->default_value = 0.0;
             return true;
+        case 4:
+            info->id = kParamOutputDialect;
+            info->flags = CLAP_PARAM_IS_AUTOMATABLE | CLAP_PARAM_IS_STEPPED;
+            std::strncpy(info->name, "Output Dialect", sizeof(info->name) - 1);
+            std::strncpy(info->module, "Routing", sizeof(info->module) - 1);
+            info->min_value = 0.0;
+            info->max_value = 1.0;
+            info->default_value = 0.0;
+            return true;
         default:
             return false;
         }
@@ -86,6 +98,7 @@ public:
         case kParamTransientSensitivity: return snap.transient_sensitivity;
         case kParamGateThreshold: return snap.gate_threshold;
         case kParamRoutingMode: return static_cast<double>(snap.routing_mode);
+        case kParamOutputDialect: return static_cast<double>(snap.output_dialect);
         default: return 0.0;
         }
     }
@@ -103,6 +116,9 @@ public:
             break;
         case kParamRoutingMode:
             routing_mode_.store(static_cast<uint32_t>(std::clamp(std::round(value), 0.0, 2.0)), std::memory_order_relaxed);
+            break;
+        case kParamOutputDialect:
+            output_dialect_.store(static_cast<uint32_t>(std::clamp(std::round(value), 0.0, 1.0)), std::memory_order_relaxed);
             break;
         default:
             break;
@@ -128,6 +144,10 @@ public:
             else std::strncpy(out_buf, "Target All", out_buf_size - 1);
             return true;
         }
+        case kParamOutputDialect:
+            std::strncpy(out_buf, std::round(value) >= 1.0 ? "MIDI 2.0 UMP" : "CLAP Notes", out_buf_size - 1);
+            out_buf[out_buf_size - 1] = '\0';
+            return true;
         default:
             return false;
         }
@@ -139,6 +159,7 @@ public:
         snap.transient_sensitivity = transient_sensitivity_.load(std::memory_order_relaxed);
         snap.gate_threshold = gate_threshold_.load(std::memory_order_relaxed);
         snap.routing_mode = routing_mode_.load(std::memory_order_relaxed);
+        snap.output_dialect = output_dialect_.load(std::memory_order_relaxed);
         return snap;
     }
 
@@ -147,6 +168,7 @@ private:
     std::atomic<float> transient_sensitivity_{AudioParamsSnapshot{}.transient_sensitivity};
     std::atomic<float> gate_threshold_{AudioParamsSnapshot{}.gate_threshold};
     std::atomic<uint32_t> routing_mode_{AudioParamsSnapshot{}.routing_mode};
+    std::atomic<uint32_t> output_dialect_{AudioParamsSnapshot{}.output_dialect};
 };
 
 } // namespace transducer::params
