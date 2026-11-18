@@ -14,6 +14,7 @@ public:
     static constexpr uint8_t kStatusNoteOff = 0x8;
     static constexpr uint8_t kStatusNoteOn = 0x9;
     static constexpr uint8_t kStatusPolyPressure = 0xA;
+    static constexpr uint8_t kStatusRegisteredController = 0x2;
     static constexpr uint8_t kStatusPerNotePitchBend = 0x6;
 
     static inline std::array<uint32_t, 2> makeNoteOn(
@@ -69,6 +70,23 @@ public:
         }
 
         return {w0, data32};
+    }
+
+    // MIDI 2.0 Registered Controller (RPN 0x00 / 0x00): Pitch Bend Sensitivity in semitones.
+    // Data word: byte 3 = coarse semitones (0..96), bytes 2..0 = fractional (1/128th semitone scaled).
+    static inline std::array<uint32_t, 2> makePitchBendRangeRpn(
+        uint8_t group, uint8_t channel, float semitones)
+    {
+        const uint32_t w0 = (static_cast<uint32_t>(kTypeChannelVoice2) << 28)
+                          | (static_cast<uint32_t>(group & 0xFu) << 24)
+                          | (static_cast<uint32_t>(kStatusRegisteredController) << 20)
+                          | (static_cast<uint32_t>(channel & 0xFu) << 16)
+                          | 0x0000u; // Bank 0x00 (bits 15..8), Index 0x00 (bits 7..0)
+        const float clamped = std::clamp(semitones, 0.0f, 127.0f);
+        const uint32_t coarse = static_cast<uint32_t>(clamped);
+        const uint32_t frac = static_cast<uint32_t>((clamped - static_cast<float>(coarse)) * 16777216.0f);
+        const uint32_t w1 = (coarse << 24) | (frac & 0x00FFFFFFu);
+        return {w0, w1};
     }
 
     static inline std::array<uint32_t, 2> makePolyPressure(

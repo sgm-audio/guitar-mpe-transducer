@@ -16,6 +16,10 @@ add_executable(transducer_tests
     test_ump_builder.cpp
     test_event_emitter.cpp
     test_plugin_lifecycle.cpp
+    test_plugin_process.cpp
+    test_onset_resolver.cpp
+    test_realtime_safety.cpp
+    test_guitar_fixtures.cpp
     ../src/plugin.cpp
     ../src/plugin_entry.cpp
 )

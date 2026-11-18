@@ -30,3 +30,7 @@ compile_commands.json
 # OS artifacts
 .DS_Store
 Thumbs.db
+
+# Release packages
+dist/
+build-release/

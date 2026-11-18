@@ -8,88 +8,72 @@
 
 namespace transducer::common {
 
-class DoubleBufferSeqLockCore {
-public:
-    static constexpr uint32_t kSlots = 2;
-
-    void init(void* slot_storage, size_t slot_size) {
-        slot_size_ = slot_size;
-        slots_ = static_cast<std::byte*>(slot_storage);
-        for (size_t i = 0; i < slot_size * kSlots; ++i) {
-            slots_[i] = std::byte{0};
-        }
-        front_.store(0, std::memory_order_relaxed);
-        writer_.store(0, std::memory_order_relaxed);
-        generation_.store(0, std::memory_order_relaxed);
-    }
-
-    void* begin_write() {
-        return &slots_[writer_.load(std::memory_order_acquire) * slot_size_];
-    }
-
-    void end_write() {
-        uint32_t cur = writer_.load(std::memory_order_relaxed);
-        front_.store(cur, std::memory_order_release);
-        generation_.fetch_add(1, std::memory_order_acq_rel);
-    }
-
-    bool read(void* out) const {
-        uint64_t g1 = generation_.load(std::memory_order_acquire);
-        uint32_t f = front_.load(std::memory_order_acquire);
-        std::memcpy(out, &slots_[f * slot_size_], slot_size_);
-        uint64_t g2 = generation_.load(std::memory_order_acquire);
-        return g1 == g2;
-    }
-
-    void swap() {
-        uint32_t cur = writer_.load(std::memory_order_acquire);
-        uint32_t next = cur ^ 1u;
-        writer_.store(next, std::memory_order_release);
-    }
-
-    uint64_t generation() const {
-        return generation_.load(std::memory_order_acquire);
-    }
-
-    size_t slot_size() const { return slot_size_; }
-
-private:
-    std::byte* slots_{nullptr};
-    size_t slot_size_{0};
-    alignas(64) std::atomic<uint32_t> front_{0};
-    alignas(64) std::atomic<uint32_t> writer_{0};
-    alignas(64) std::atomic<uint64_t> generation_{0};
-};
-
+// Single-writer / multi-reader seqlock for small trivially-copyable snapshots.
+//
+//  * Sequence counter is odd while a write is in progress, so a reader that overlaps a write
+//    always detects it (read() returns false) -- no torn snapshot is ever returned as valid.
+//  * The payload is stored in std::atomic<uint64_t> words (relaxed), so there is no data race.
+//  * Writers are wait-free; readers are lock-free (callers retry or keep their last good copy).
+//  * Exactly ONE thread may write at a time. For multiple writers use one atomic per value.
+//
+// begin_write()/end_write() edit a writer-private staging copy that already contains the last
+// published value (read-modify-write needs no reader access). `swap()` is kept as a no-op for
+// source compatibility with the former double-buffer implementation.
 template<typename T>
 class DoubleBufferSeqLock {
     static_assert(std::is_trivially_copyable_v<T>,
         "DoubleBufferSeqLock<T> requires T to be trivially copyable");
+    static constexpr size_t kWords = (sizeof(T) + sizeof(uint64_t) - 1) / sizeof(uint64_t);
 
 public:
     DoubleBufferSeqLock() {
-        core_.init(slots_, sizeof(T));
+        staging_ = T{};
+        publish(staging_);
+        seq_.store(0, std::memory_order_relaxed);
     }
 
-    T* begin_write() {
-        return reinterpret_cast<T*>(core_.begin_write());
+    T* begin_write() { return &staging_; }
+    void end_write() { publish(staging_); }
+
+    void write(const T& value) {
+        staging_ = value;
+        publish(staging_);
     }
 
-    void end_write() {
-        core_.end_write();
-    }
-
+    // Returns false if a write overlapped the read; `out` is then unspecified.
     bool read(T& out) const {
-        return core_.read(&out);
+        const uint64_t s1 = seq_.load(std::memory_order_acquire);
+        if (s1 & 1u) return false;
+        uint64_t tmp[kWords];
+        for (size_t i = 0; i < kWords; ++i) {
+            tmp[i] = words_[i].load(std::memory_order_relaxed);
+        }
+        std::atomic_thread_fence(std::memory_order_acquire);
+        if (seq_.load(std::memory_order_relaxed) != s1) return false;
+        std::memcpy(&out, tmp, sizeof(T));
+        return true;
     }
 
-    void swap() { core_.swap(); }
+    void swap() {}
 
-    uint64_t generation() const { return core_.generation(); }
+    uint64_t generation() const { return seq_.load(std::memory_order_acquire) / 2; }
 
 private:
-    alignas(64) std::byte slots_[sizeof(T) * DoubleBufferSeqLockCore::kSlots];
-    DoubleBufferSeqLockCore core_;
+    void publish(const T& v) {
+        uint64_t tmp[kWords] = {};
+        std::memcpy(tmp, &v, sizeof(T));
+        const uint64_t s = seq_.load(std::memory_order_relaxed);
+        seq_.store(s + 1, std::memory_order_relaxed);
+        std::atomic_thread_fence(std::memory_order_release);
+        for (size_t i = 0; i < kWords; ++i) {
+            words_[i].store(tmp[i], std::memory_order_relaxed);
+        }
+        seq_.store(s + 2, std::memory_order_release);
+    }
+
+    alignas(64) std::atomic<uint64_t> seq_{0};
+    std::atomic<uint64_t> words_[kWords]{};
+    T staging_{};
 };
 
 } // namespace transducer::common

@@ -36,3 +36,27 @@ TEST_CASE("UmpBuilder encodes release velocity in Note-Off UMP", "[midi2][ump]")
     REQUIRE(vel16 >= 0xBF00);
     REQUIRE(vel16 <= 0xC100);
 }
+
+TEST_CASE("ReleaseVelocityEstimator::update detects >=30dB mute in 10ms and scales with dB/ms", "[dsp][release]") {
+    using namespace transducer::dsp;
+    ReleaseVelocityEstimator est;
+    est.prepare(750.0f); // 48 kHz / 64
+
+    // Natural decay (~0.05 dB/ms): never muted, low release velocity
+    float nat = 0.0f;
+    for (int i = 0; i < 60; ++i) {
+        nat = est.update(0.4f * std::exp(-0.004f * static_cast<float>(i)));
+        REQUIRE_FALSE(est.muted());
+    }
+    REQUIRE(nat < 0.15f);
+
+    // Sudden choke: 0.4 -> 0.005 (~38 dB) over 4 hops (~5.3 ms)
+    est.reset();
+    for (int i = 0; i < 12; ++i) est.update(0.4f);
+    float vel = 0.0f;
+    for (int i = 0; i < 5; ++i) {
+        vel = est.update(0.4f * std::pow(0.25f, static_cast<float>(i + 1)));
+    }
+    REQUIRE(est.muted());
+    REQUIRE(vel > 0.7f);
+}

@@ -30,3 +30,35 @@ jobs:
 
       - name: Test
         run: ctest --test-dir build -C Release --output-on-failure
+
+  rtsan:
+    name: RealtimeSanitizer (Linux Clang)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Install Clang 20
+        run: |
+          sudo apt-get update
+          if ! sudo apt-get install -y clang-20; then
+            sudo apt-get install -y lsb-release wget software-properties-common gnupg
+            wget -qO- https://apt.llvm.org/llvm.sh | sudo bash -s -- 20
+          fi
+
+      - name: Setup CMake
+        uses: lukka/get-cmake@latest
+
+      - name: Configure with RTSan
+        run: |
+          CXX=$(command -v clang++-20)
+          CC=$(command -v clang-20)
+          cmake -B build-rtsan -S . -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+            -DCMAKE_C_COMPILER="$CC" -DCMAKE_CXX_COMPILER="$CXX" \
+            -DCMAKE_CXX_FLAGS="-fsanitize=realtime -fno-omit-frame-pointer"
+
+      - name: Build
+        run: cmake --build build-rtsan --target transducer_tests --parallel
+
+      - name: Test
+        run: ctest --test-dir build-rtsan --output-on-failure

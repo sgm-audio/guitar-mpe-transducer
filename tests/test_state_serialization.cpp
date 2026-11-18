@@ -95,3 +95,32 @@ TEST_CASE("StateSerializer works through CLAP stream interface", "[state][clap]"
     REQUIRE(StateSerializer::deserialize(dest, &istream));
     REQUIRE(dest.get_value(kParamBendRange) == Catch::Approx(12.0));
 }
+
+#include <transducer/presets/factory_presets.h>
+
+TEST_CASE("Factory presets round-trip through StateSerializer within parameter bounds", "[state][presets]") {
+    using namespace transducer::state;
+    using namespace transducer::params;
+    using namespace transducer::presets;
+
+    for (const auto& preset : kFactoryPresets) {
+        ParameterManager src;
+        src.set_value(kParamBendRange, preset.bend_range);
+        src.set_value(kParamTransientSensitivity, preset.transient_sensitivity);
+        src.set_value(kParamGateThreshold, preset.gate_threshold);
+        src.set_value(kParamRoutingMode, preset.routing_mode);
+        src.set_value(kParamOutputDialect, preset.output_dialect);
+
+        std::array<uint8_t, 512> buf{};
+        size_t written = 0;
+        REQUIRE(StateSerializer::serialize_to_buffer(src, buf.data(), buf.size(), written));
+
+        ParameterManager dst;
+        REQUIRE(StateSerializer::deserialize_from_buffer(dst, buf.data(), written));
+        REQUIRE(dst.get_value(kParamBendRange) == Catch::Approx(preset.bend_range));
+        REQUIRE(dst.get_value(kParamTransientSensitivity) == Catch::Approx(preset.transient_sensitivity));
+        REQUIRE(dst.get_value(kParamGateThreshold) == Catch::Approx(preset.gate_threshold));
+        REQUIRE(dst.get_value(kParamRoutingMode) == Catch::Approx(static_cast<double>(preset.routing_mode)));
+        REQUIRE(dst.get_value(kParamOutputDialect) == Catch::Approx(static_cast<double>(preset.output_dialect)));
+    }
+}

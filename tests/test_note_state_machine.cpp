@@ -55,3 +55,44 @@ TEST_CASE("NoteStateMachine handles reset and pitch boundaries", "[dsp][state_ma
     auto a2 = nsm.process(false, 0.0f, 0.0f, false);
     REQUIRE(a2.type == NoteActionType::kNone);
 }
+
+TEST_CASE("NoteStateMachine::step handles hysteresis, fast mute and legato", "[dsp][state_machine]") {
+    using namespace transducer::dsp;
+    NoteStateMachine nsm;
+
+    NoteStepInput in{};
+    in.resolved_onset = true;
+    in.onset_midi = 60.0f;
+    in.onset_velocity = 0.8f;
+    in.pitch_frame = true;
+    in.pitch_valid = true;
+    in.raw_midi = 60.0f;
+    in.filtered_midi = 60.0f;
+    in.confidence = 0.95f;
+    in.level = 0.01f;
+    in.gate = 0.002f;
+    auto a = nsm.step(in);
+    REQUIRE(a.type == NoteActionType::kNoteOn);
+
+    // Level dips slightly below gate (0.0016 > 0.002 * 0.7): hysteresis keeps note alive
+    in.resolved_onset = false;
+    in.level = 0.0016f;
+    REQUIRE(nsm.step(in).type == NoteActionType::kBendModulate);
+
+    // Hammer-on up 2 semitones without an onset -> kLegato after 3 confirming frames
+    in.level = 0.05f;
+    in.raw_midi = 62.0f;
+    in.filtered_midi = 62.0f;
+    REQUIRE(nsm.step(in).type == NoteActionType::kBendModulate);
+    REQUIRE(nsm.step(in).type == NoteActionType::kBendModulate);
+    auto leg = nsm.step(in);
+    REQUIRE(leg.type == NoteActionType::kLegato);
+    REQUIRE(leg.key == 62);
+    REQUIRE(leg.off_key == 60);
+
+    // Sudden mute cuts off immediately even while level is still above gate
+    in.muted = true;
+    auto off = nsm.step(in);
+    REQUIRE(off.type == NoteActionType::kNoteOff);
+    REQUIRE(off.key == 62);
+}

@@ -7,9 +7,12 @@ namespace transducer::dsp {
 
 class PitchContinuityFilter {
 public:
-    explicit PitchContinuityFilter(float max_step_semitones = 3.5f)
-        : max_step_(max_step_semitones) {}
+    // `max_step_semitones` is accepted for source compatibility but unused: steps > 1 st are
+    // always followed immediately (fret changes) except octave jumps, which need 3 frames.
+    explicit PitchContinuityFilter(float /*max_step_semitones*/ = 3.5f) {}
 
+    // Forget history. Must be called at every note onset so the first frame of the new note is
+    // taken raw instead of being octave-gated against the previous note's pitch.
     void reset() {
         last_pitch_ = 0.0f;
         has_history_ = false;
@@ -68,7 +71,6 @@ public:
     float last_pitch() const { return last_pitch_; }
 
 private:
-    float max_step_{3.5f};
     float last_pitch_{0.0f};
     bool has_history_{false};
     float jump_candidate_pitch_{0.0f};
