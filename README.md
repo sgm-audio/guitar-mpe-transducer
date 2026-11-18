@@ -76,6 +76,18 @@ Set your receiving synth's **MPE Pitch Bend Range** to match the transducer's `b
 - **±24 semitones (Tight Tracking — Preset 5):**
   - Best for **monophonic lead synths** or **classic VA patches** where `±48 st` feels too coarse over 14-bit MIDI pitch wheel (`±24 st` doubles pitch-wheel resolution while still covering 2-octave slides). Set the synth's bend range to `24`.
 
+## Offline CSV Test Harness
+
+Inspect `StringPipeline` tracking (`note_on`, `note_off`, `bend`, `pressure`) on recorded 1–6 channel WAVs or built-in synthetic guitar gestures without a DAW or live guitar:
+
+```bash
+# Built-in 6-channel hexaphonic chord -> CSV
+./build/transducer_offline_harness --synth hex --out hex_events.csv
+
+# Recorded mono guitar DI WAV with custom sensitivity/gate -> stdout
+./build/transducer_offline_harness --wav my_guitar_di.wav --sensitivity 0.015 --gate 0.003
+```
+
 ## License
 
 MIT (c) 2026 SGM Audio

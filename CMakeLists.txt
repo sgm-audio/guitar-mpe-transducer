@@ -50,6 +50,13 @@ set_target_properties(guitar_mpe_transducer PROPERTIES
     SUFFIX ".clap"
 )
 
+# Offline CSV test harness
+add_executable(transducer_offline_harness
+    tools/offline_csv_harness.cpp
+)
+target_include_directories(transducer_offline_harness PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_compile_features(transducer_offline_harness PRIVATE cxx_std_20)
+
 # Tests
 add_subdirectory(tests)
 
