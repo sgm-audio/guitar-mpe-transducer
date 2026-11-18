@@ -59,13 +59,13 @@ GuitarTransducerAudioProcessor::createParameterLayout()
     params.push_back(std::make_unique<juce::AudioParameterChoice>(
         juce::ParameterID{kParamRoutingMode, 1},
         "Dual-Neck Routing Mode",
-        juce::StringArray{"Direct", "Target Highest", "Target All"},
+        juce::StringArray{"Direct (Mono)", "Target Highest (Poly)", "Target All (Poly)"},
         0));
 
     params.push_back(std::make_unique<juce::AudioParameterChoice>(
         juce::ParameterID{kParamOutputDialect, 1},
         "Output Dialect",
-        juce::StringArray{"MPE (Per-Channel Bend)", "Single-Channel MIDI"},
+        juce::StringArray{"CLAP Notes / MPE", "MIDI 2.0 UMP / Single-Ch"},
         0));
 
     return {params.begin(), params.end()};

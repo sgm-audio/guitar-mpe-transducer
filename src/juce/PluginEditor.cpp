@@ -30,12 +30,19 @@ constexpr const char* kEditorXml = R"xml(
     <Component id="modes-row" height="58" flex-direction="row" gap="10">
         <Component class="card" flex-grow="1" flex-direction="column" padding="8" gap="4">
             <Text class="label">TRACKING / ROUTING</Text>
-            <ComboBox id="routing_mode" flex-grow="1" />
+            <ComboBox id="routing_mode" flex-grow="1">
+                <Option>Direct (Mono)</Option>
+                <Option>Target Highest (Poly)</Option>
+                <Option>Target All (Poly)</Option>
+            </ComboBox>
         </Component>
 
         <Component class="card" flex-grow="1" flex-direction="column" padding="8" gap="4">
             <Text class="label">OUTPUT DIALECT</Text>
-            <ComboBox id="output_dialect" flex-grow="1" />
+            <ComboBox id="output_dialect" flex-grow="1">
+                <Option>CLAP Notes / MPE</Option>
+                <Option>MIDI 2.0 UMP / Single-Ch</Option>
+            </ComboBox>
         </Component>
     </Component>
 </Component>
@@ -96,6 +103,23 @@ GuitarTransducerAudioProcessorEditor::GuitarTransducerAudioProcessorEditor(
             root_comp->setLookAndFeel(&look_and_feel_);
             addAndMakeVisible(root_comp);
             telemetry_slot_ = root_comp->findChildWithID("telemetry-slot");
+
+            // Ensure ComboBoxes are populated (1-based item IDs == 0-based AudioParameterChoice index + 1)
+            // and display the active choice label immediately upon editor creation.
+            auto sync_choice_combo = [&](const char* param_id) {
+                auto* combo = dynamic_cast<juce::ComboBox*>(root_comp->findChildWithID(param_id));
+                auto* choice = dynamic_cast<juce::AudioParameterChoice*>(processor_.apvts().getParameter(param_id));
+                if (combo == nullptr || choice == nullptr) return;
+                if (combo->getNumItems() != choice->choices.size()) {
+                    combo->clear(juce::dontSendNotification);
+                    combo->addItemList(choice->choices, 1);
+                }
+                combo->setSelectedItemIndex(choice->getIndex(), juce::dontSendNotification);
+                jassert(combo->getNumItems() == choice->choices.size());
+                jassert(combo->getItemText(choice->getIndex()) == choice->getCurrentChoiceName());
+            };
+            sync_choice_combo("routing_mode");
+            sync_choice_combo("output_dialect");
         }
     }
 
