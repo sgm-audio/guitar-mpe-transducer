@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <cmath>
 #include <algorithm>
+#include <array>
 
 namespace transducer::dsp {
 
@@ -46,7 +47,8 @@ class NoteStateMachine {
 public:
     static constexpr float kOffHysteresis = 0.7f;      // off below gate*0.7, on only above gate
     static constexpr int kInvalidFramesForOff = 60;    // ~80 ms of no pitch (with low level)
-    static constexpr float kJumpSemitones = 0.8f;      // raw step between frames = fret change
+    static constexpr size_t kLookbackHops = 22;        // ~30 ms @ 750 Hz hop rate
+    static constexpr float kJumpSemitones = 0.85f;     // >= 0.85 st within 30 ms = fret change
     static constexpr float kJumpTolerance = 0.4f;
     static constexpr int kJumpConfirmFrames = 3;
     static constexpr int kOctaveJumpConfirmFrames = 8; // octave-like steps are usually YIN errors
@@ -138,35 +140,46 @@ public:
         invalid_frames_ = 0;
 
         if (good) {
-            if (have_prev_) {
-                const float step_st = in.raw_midi - prev_raw_;
-                if (jump_frames_ == 0) {
-                    if (std::fabs(step_st) > kJumpSemitones) {
-                        jump_frames_ = 1;
-                        jump_target_ = in.raw_midi;
-                        jump_octave_ = is_octave_like(step_st);
-                    }
-                } else if (std::fabs(in.raw_midi - jump_target_) < kJumpTolerance) {
-                    ++jump_frames_;
-                    jump_target_ = in.raw_midi;
-                    const int need = jump_octave_ ? kOctaveJumpConfirmFrames : kJumpConfirmFrames;
-                    if (jump_frames_ >= need) {
-                        const int16_t new_key = to_key(in.raw_midi);
-                        jump_frames_ = 0;
-                        prev_raw_ = in.raw_midi;
-                        if (new_key != current_key_) {
-                            const int16_t old_key = current_key_;
-                            current_key_ = new_key;
-                            current_velocity_ = std::max(0.2f, current_velocity_ * 0.8f);
-                            return {NoteActionType::kLegato, current_key_, current_velocity_, 0.0f, old_key};
-                        }
-                    }
-                } else {
-                    jump_frames_ = 0;
-                }
-            }
+            // Compare against pitch ~30 ms ago (not 1 hop ago) so YIN's ~20 ms window straddle on
+            // a hammer-on still registers as a discrete jump, while a 2-st bend (~0.25 st/30ms) stays bend.
+            const float ref = (hist_filled_ >= kLookbackHops) ? hist_[hist_pos_] : hist_[0];
+            const float step_st = (hist_filled_ > 0) ? (in.raw_midi - ref) : 0.0f;
+            hist_[hist_pos_] = in.raw_midi;
+            hist_pos_ = (hist_pos_ + 1) % kLookbackHops;
+            if (hist_filled_ < kLookbackHops) ++hist_filled_;
+
+            const float delta = has_prev_raw_ ? std::fabs(in.raw_midi - prev_raw_) : 0.0f;
             prev_raw_ = in.raw_midi;
-            have_prev_ = true;
+            has_prev_raw_ = true;
+
+            if (jump_frames_ == 0) {
+                if (std::fabs(step_st) > kJumpSemitones) {
+                    jump_frames_ = 1;
+                    jump_target_ = in.raw_midi;
+                    jump_octave_ = is_octave_like(step_st);
+                }
+            } else if (std::fabs(in.raw_midi - jump_target_) < kJumpTolerance && delta < 0.12f) {
+                ++jump_frames_;
+                const int need = jump_octave_ ? kOctaveJumpConfirmFrames : kJumpConfirmFrames;
+                if (jump_frames_ >= need) {
+                    const int16_t new_key = to_key(in.raw_midi);
+                    jump_frames_ = 0;
+                    if (new_key != current_key_) {
+                        const int16_t old_key = current_key_;
+                        current_key_ = new_key;
+                        current_velocity_ = std::max(0.2f, current_velocity_ * 0.8f);
+                        clear_tracking(in.raw_midi);
+                        return {NoteActionType::kLegato, current_key_, current_velocity_, 0.0f, old_key};
+                    }
+                }
+            } else if (std::fabs(in.raw_midi - ref) > kJumpSemitones) {
+                // Still sliding toward the new fret: update target and restart confirmation once settled.
+                jump_frames_ = 1;
+                jump_target_ = in.raw_midi;
+                jump_octave_ = is_octave_like(step_st);
+            } else {
+                jump_frames_ = 0;
+            }
         }
 
         const float bend = in.filtered_midi - static_cast<float>(current_key_);
@@ -187,20 +200,26 @@ private:
         return {NoteActionType::kNoteOff, current_key_, 0.0f, 0.0f, -1};
     }
     void clear_tracking(float seed_midi) noexcept {
-        prev_raw_ = seed_midi;
-        have_prev_ = seed_midi > 0.0f;
+        hist_.fill(seed_midi);
+        hist_pos_ = 0;
+        hist_filled_ = (seed_midi > 0.0f) ? kLookbackHops : 0;
         jump_frames_ = 0;
         jump_target_ = 0.0f;
         jump_octave_ = false;
         invalid_frames_ = 0;
+        prev_raw_ = seed_midi;
+        has_prev_raw_ = seed_midi > 0.0f;
     }
 
-    float prev_raw_{0.0f};
-    bool have_prev_{false};
+    std::array<float, kLookbackHops> hist_{};
+    size_t hist_pos_{0};
+    size_t hist_filled_{0};
     int jump_frames_{0};
     float jump_target_{0.0f};
     bool jump_octave_{false};
     int invalid_frames_{0};
+    float prev_raw_{0.0f};
+    bool has_prev_raw_{false};
 
     bool active_{false};
     int16_t current_key_{60};

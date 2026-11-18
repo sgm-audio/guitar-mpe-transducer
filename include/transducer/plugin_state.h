@@ -13,6 +13,10 @@ struct PluginState {
     static constexpr size_t kMaxStrings = 6;
 
     std::array<dsp::StringPipeline, kMaxStrings> strings{};
+    std::array<uint8_t, kMaxStrings> string_channel{};
+    std::array<float, 16> rpn_sent_range{};
+    uint8_t next_mono_channel{0};
+
     voice::VoiceAllocator voice_allocator{};
     params::ParameterManager param_manager{};
     common::ThreadCheck thread_check{};
@@ -29,8 +33,12 @@ struct PluginState {
         const float sr = static_cast<float>(sample_rate);
         for (size_t i = 0; i < kMaxStrings; ++i) {
             strings[i].prepare(sr, static_cast<int>(i));
+            string_channel[i] = static_cast<uint8_t>(i);
         }
+        rpn_sent_range.fill(-1.0f);
+        next_mono_channel = 0;
         voice_allocator.reset();
+        thread_check.reset_audio_thread();
         dropped_events = 0;
     }
 };

@@ -56,7 +56,9 @@ public:
         next_id_ = (string_index + 1) * 100000;
         transient_.set_sample_rate(sample_rate);
         resolver_.prepare(sample_rate);
-        release_.prepare(sample_rate / static_cast<float>(YinPitchTracker::kHopSize));
+        const float hop_hz = sample_rate / static_cast<float>(YinPitchTracker::kHopSize);
+        vibrato_.prepare(hop_hz);
+        release_.prepare(hop_hz);
         articulation_.prepare(sample_rate);
         chord_.prepare(sample_rate);
         lvl_att_ = 1.0f - std::exp(-1.0f / (0.001f * sample_rate));

@@ -253,13 +253,28 @@ static clap_process_status plugin_process(const clap_plugin_t* plugin, const cla
 
     auto emit_core = [&](const transducer::dsp::CoreEvent& e) {
         using T = transducer::dsp::CoreEvent::Type;
-        const int16_t ch = e.string_index;
-        const uint8_t u8ch = static_cast<uint8_t>(ch & 0xF);
+        const size_t si = static_cast<size_t>(std::clamp<int16_t>(e.string_index, 0, transducer::PluginState::kMaxStrings - 1));
+        if (e.type == T::kNoteOn) {
+            if (num_strings <= 1) {
+                st.string_channel[si] = st.next_mono_channel;
+                st.next_mono_channel = static_cast<uint8_t>((st.next_mono_channel + 1u) & 0xFu);
+            } else {
+                st.string_channel[si] = static_cast<uint8_t>(si);
+            }
+        }
+        const uint8_t u8ch = st.string_channel[si];
+        const int16_t ch = static_cast<int16_t>(u8ch);
         const uint8_t u8key = static_cast<uint8_t>(std::clamp<int16_t>(e.key, 0, 127));
 
         if (st.output_dialect == 1) {
             switch (e.type) {
             case T::kNoteOn:
+                if (st.rpn_sent_range[u8ch] != st.pitch_bend_range) {
+                    push_checked(transducer::clap::EventEmitter::emitMidi2Ump(
+                        out_ev, e.offset, 0,
+                        transducer::midi2::UmpBuilder::makePitchBendRangeRpn(0, u8ch, st.pitch_bend_range)));
+                    st.rpn_sent_range[u8ch] = st.pitch_bend_range;
+                }
                 push_checked(transducer::clap::EventEmitter::emitMidi2Ump(
                     out_ev, e.offset, 0, transducer::midi2::UmpBuilder::makeNoteOn(0, u8ch, u8key, e.value)));
                 break;
@@ -277,7 +292,7 @@ static clap_process_status plugin_process(const clap_plugin_t* plugin, const cla
                     out_ev, e.offset, 0, transducer::midi2::UmpBuilder::makePolyPressure(0, u8ch, u8key, e.value)));
                 break;
             case T::kBrightness:
-                break; // no standard per-note UMP brightness without registered controller assignment
+                break;
             }
             return;
         }

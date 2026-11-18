@@ -15,6 +15,11 @@ public:
         history_.fill(0.0f);
     }
 
+    void prepare(float hop_rate_hz) noexcept {
+        hop_rate_ = std::max(hop_rate_hz, 1.0f);
+        reset();
+    }
+
     void reset() {
         history_.fill(0.0f);
         write_pos_ = 0;

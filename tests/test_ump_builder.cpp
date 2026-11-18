@@ -40,3 +40,12 @@ TEST_CASE("UmpBuilder packs MIDI 2.0 Per-Note Pitch Bend packet", "[midi2][ump]"
     auto neg_ump = UmpBuilder::makePerNotePitchBend(0, 0, 64, -48.0f, 48.0f);
     REQUIRE(neg_ump[1] == 0x00000000u);
 }
+
+TEST_CASE("UmpBuilder encodes Pitch Bend Range RPN (0x00/0x00)", "[midi2][ump]") {
+    auto ump = transducer::midi2::UmpBuilder::makePitchBendRangeRpn(0, 3, 48.0f);
+    REQUIRE(((ump[0] >> 28) & 0xF) == 0x4);
+    REQUIRE(((ump[0] >> 20) & 0xF) == 0x2); // Registered Controller
+    REQUIRE(((ump[0] >> 16) & 0xF) == 3);
+    REQUIRE((ump[0] & 0xFFFFu) == 0x0000u);
+    REQUIRE(((ump[1] >> 24) & 0xFFu) == 48u);
+}

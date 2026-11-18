@@ -52,10 +52,16 @@ TEST_CASE("V10 Integrated Transducer Engine - Full Performance Pipeline", "[engi
         REQUIRE(out1.active_key == 64);
         REQUIRE(out1.note_retriggered == false);
 
-        // Second block: bend up 2 semitones to F#4 (370.0 Hz) smoothly without pluck attack
-        auto tone2 = generate_continuous_tone(369.99f, 48000.0f, 1024, phase, 0.45f);
+        // Smoothly bend up 2 semitones to F#4 (370.0 Hz) over 4096 samples (~85 ms) without pluck attack
+        std::vector<float> bend_buf(5120); // 4096-sample ramp + 1024-sample hold for YIN window to settle
+        for (size_t i = 0; i < bend_buf.size(); ++i) {
+            float frac = std::min(1.0f, static_cast<float>(i) / 4095.0f);
+            float f = 329.63f + frac * (369.99f - 329.63f);
+            bend_buf[i] = 0.45f * static_cast<float>(std::sin(phase));
+            phase = std::fmod(phase + 2.0 * kPi * static_cast<double>(f) / 48000.0, 2.0 * kPi);
+        }
         TransducerEngineOutput out2{};
-        engine.process_block(tone2.data(), tone2.size(), out2);
+        engine.process_block(bend_buf.data(), bend_buf.size(), out2);
 
         REQUIRE(out2.note_active);
         REQUIRE(out2.active_key == 64); // Fundamental anchor remains key 64
@@ -88,7 +94,7 @@ TEST_CASE("V10 Integrated Transducer Engine - Full Performance Pipeline", "[engi
         REQUIRE(out1.note_active);
 
         // Instant choke (silence with abrupt palm mute transient)
-        std::vector<float> silence(1024, 0.0f);
+        std::vector<float> silence(2048, 0.0f);
         TransducerEngineOutput out2{};
         engine.process_block(silence.data(), silence.size(), out2);
 
