@@ -96,6 +96,8 @@ if(TRANSDUCER_BUILD_JUCE)
         PRIVATE
             juce::juce_audio_utils
             juce::juce_dsp
+            jive::jive_layouts
+            jive::jive_style_sheets
         PUBLIC
             juce::juce_recommended_config_flags
             juce::juce_recommended_lto_flags

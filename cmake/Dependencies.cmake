@@ -30,6 +30,15 @@ if(TRANSDUCER_BUILD_JUCE)
     )
     FetchContent_MakeAvailable(JUCE)
 
+    message(STATUS "Fetching JIVE...")
+    FetchContent_Declare(
+        JIVE
+        GIT_REPOSITORY https://github.com/ImJimmi/JIVE.git
+        GIT_TAG        main
+        GIT_SHALLOW    TRUE
+    )
+    FetchContent_MakeAvailable(JIVE)
+
     if(TRANSDUCER_BUILD_JUCE_CLAP)
         message(STATUS "Fetching clap-juce-extensions...")
         FetchContent_Declare(

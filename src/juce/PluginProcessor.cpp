@@ -157,6 +157,10 @@ void GuitarTransducerAudioProcessor::processBlock(juce::AudioBuffer<float>& buff
 
         switch (e.type) {
         case T::kNoteOn: {
+            if (si == 0 || !strings_[0].note_active()) {
+                telemetry_.midi_note.store(note, std::memory_order_relaxed);
+                telemetry_.cents_offset.store(0.0f, std::memory_order_relaxed);
+            }
             if (rpn_sent_range_[static_cast<size_t>(ch - 1)] != bend_range) {
                 const int semi = std::clamp(static_cast<int>(std::round(bend_range)), 1, 96);
                 scratch_midi_.addEvent(juce::MidiMessage::controllerEvent(ch, 101, 0), pos);
@@ -169,15 +173,26 @@ void GuitarTransducerAudioProcessor::processBlock(juce::AudioBuffer<float>& buff
             break;
         }
         case T::kNoteOff:
+            if (si == 0) {
+                telemetry_.midi_note.store(-1, std::memory_order_relaxed);
+                telemetry_.cents_offset.store(0.0f, std::memory_order_relaxed);
+                telemetry_.pressure.store(0.0f, std::memory_order_relaxed);
+            }
             scratch_midi_.addEvent(juce::MidiMessage::noteOff(ch, note, std::clamp(e.value, 0.0f, 1.0f)), pos);
             break;
         case T::kBend: {
+            if (si == 0) {
+                telemetry_.cents_offset.store(e.value * 100.0f, std::memory_order_relaxed);
+            }
             const float norm = std::clamp(e.value / bend_range, -1.0f, 1.0f);
             const int wheel = std::clamp(static_cast<int>(std::round((norm * 0.5f + 0.5f) * 16383.0f)), 0, 16383);
             scratch_midi_.addEvent(juce::MidiMessage::pitchWheel(ch, wheel), pos);
             break;
         }
         case T::kPressure: {
+            if (si == 0) {
+                telemetry_.pressure.store(std::clamp(e.value, 0.0f, 1.0f), std::memory_order_relaxed);
+            }
             const int press = std::clamp(static_cast<int>(std::round(e.value * 127.0f)), 0, 127);
             scratch_midi_.addEvent(juce::MidiMessage::channelPressureChange(ch, press), pos);
             break;
@@ -196,6 +211,15 @@ void GuitarTransducerAudioProcessor::processBlock(juce::AudioBuffer<float>& buff
             strings_[static_cast<size_t>(c)].process_sample(sample, static_cast<uint32_t>(s), emit_core);
         }
     }
+
+    uint8_t mask = 0;
+    for (int c = 0; c < num_ch; ++c) {
+        if (strings_[static_cast<size_t>(c)].note_active()) {
+            mask |= static_cast<uint8_t>(1u << c);
+        }
+    }
+    telemetry_.string_mask.store(mask, std::memory_order_relaxed);
+    telemetry_.active_channels.store(static_cast<uint8_t>(num_ch), std::memory_order_relaxed);
 
     midiMessages.swapWith(scratch_midi_);
 }

@@ -39,7 +39,17 @@ public:
     void getStateInformation(juce::MemoryBlock& destData) override;
     void setStateInformation(const void* data, int sizeInBytes) override;
 
+    // Lock-free audio -> GUI telemetry (written with memory_order_relaxed on audio thread)
+    struct Telemetry {
+        std::atomic<int> midi_note{-1};
+        std::atomic<float> cents_offset{0.0f};
+        std::atomic<float> pressure{0.0f};
+        std::atomic<uint8_t> string_mask{0};
+        std::atomic<uint8_t> active_channels{1};
+    };
+
     juce::AudioProcessorValueTreeState& apvts() noexcept { return apvts_; }
+    const Telemetry& telemetry() const noexcept { return telemetry_; }
 
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
 
@@ -61,6 +71,7 @@ private:
 
     transducer::voice::VoiceAllocator voice_allocator_{};
     juce::MidiBuffer scratch_midi_{};
+    Telemetry telemetry_{};
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(GuitarTransducerAudioProcessor)
 };
