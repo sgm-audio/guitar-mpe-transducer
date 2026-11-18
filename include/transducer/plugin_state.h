@@ -8,6 +8,7 @@
 #include <transducer/dsp/articulation_classifier.h>
 #include <transducer/dsp/vibrato_detector.h>
 #include <transducer/dsp/note_state_machine.h>
+#include <transducer/dsp/onset_resolver.h>
 #include <transducer/voice/voice_allocator.h>
 #include <transducer/params/parameter_manager.h>
 #include <transducer/common/thread_check.h>
@@ -24,6 +25,7 @@ struct PluginState {
     dsp::ArticulationClassifier articulation_classifier{};
     dsp::VibratoDetector vibrato_detector{};
     dsp::NoteStateMachine state_machine{};
+    dsp::OnsetResolver onset_resolver{};
     voice::VoiceAllocator voice_allocator{};
     params::ParameterManager param_manager{};
     common::ThreadCheck thread_check{};
@@ -47,6 +49,8 @@ struct PluginState {
         articulation_classifier.reset();
         vibrato_detector.reset();
         state_machine.reset();
+        onset_resolver.prepare(static_cast<float>(sample_rate));
+        transient_detector.set_sample_rate(static_cast<float>(sample_rate));
         voice_allocator.reset();
         active_note_id = -1;
         active_key = -1;

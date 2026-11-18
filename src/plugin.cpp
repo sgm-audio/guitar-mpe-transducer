@@ -3,6 +3,7 @@
 #include <transducer/clap/event_emitter.h>
 #include <transducer/midi2/ump_builder.h>
 #include <transducer/state/state_serializer.h>
+#include <transducer/dsp/onset_resolver.h>
 #include <cstring>
 #include <cmath>
 #include <algorithm>
@@ -258,87 +259,98 @@ static clap_process_status plugin_process(const clap_plugin_t* plugin, const cla
         }
     }
 
+    auto& st = inst->state;
+    const float sr = static_cast<float>(st.sample_rate);
+
+    auto end_active_note = [&](uint32_t s, double release_vel) {
+        if (st.active_note_id == -1) return;
+        transducer::clap::EventEmitter::emitNoteOff(
+            out_ev, s, st.active_note_id, st.active_key, release_vel);
+        auto ump_off = transducer::midi2::UmpBuilder::makeNoteOff(
+            0, 0, static_cast<uint8_t>(st.active_key), static_cast<float>(release_vel));
+        transducer::clap::EventEmitter::emitMidi2Ump(out_ev, s, 0, ump_off);
+        st.active_note_id = -1;
+        st.active_key = -1;
+    };
+
     for (uint32_t s = 0; s < frames; ++s) {
         float sample = in_audio ? in_audio[s] : 0.0f;
         if (out_audio) {
             out_audio[s] = sample; // Pass-thru guitar monitor
         }
 
-        // 1. Run transient detector
-        auto trans_res = inst->state.transient_detector.process(sample);
+        // 1. Run transient detector (onset flag lasts ONE sample; never gate it on the pitch hop)
+        auto trans_res = st.transient_detector.process(sample);
+
+        if (trans_res.onset_detected) {
+            // New pluck: pitch must be re-measured from post-onset audio only.
+            st.articulation_classifier.reset();
+            st.pitch_tracker.notify_onset();
+            st.pitch_continuity.reset();
+            st.onset_resolver.on_onset();
+        }
+        if (trans_res.velocity_ready) {
+            st.onset_resolver.on_velocity(trans_res.final_velocity);
+        }
+        st.onset_resolver.tick(); // unpitched hits time out without a note
 
         // 2. Run brightness estimator
-        float brightness = inst->state.brightness_estimator.process(
-            sample, static_cast<float>(inst->state.sample_rate));
+        float brightness = st.brightness_estimator.process(sample, sr);
 
         // 3. Feed articulation classifier
-        inst->state.articulation_classifier.feedSample(trans_res.envelope, brightness);
+        st.articulation_classifier.feedSample(trans_res.envelope, brightness);
 
-        // 4. Run YIN pitch tracker
-        auto pitch_opt = inst->state.pitch_tracker.processSample(
-            sample, static_cast<float>(inst->state.sample_rate));
+        // 4. Run YIN pitch tracker (one estimate per hop)
+        auto pitch_opt = st.pitch_tracker.processSample(sample, sr);
+        if (!pitch_opt.has_value()) {
+            continue;
+        }
 
-        if (pitch_opt.has_value()) {
-            const auto& pitch = *pitch_opt;
-            float continuous_midi = inst->state.pitch_continuity.process(
-                pitch.midi_note, pitch.confidence, pitch.is_valid);
+        const auto& pitch = *pitch_opt;
+        float continuous_midi = st.pitch_continuity.process(
+            pitch.midi_note, pitch.confidence, pitch.is_valid);
 
-            // Note Off / String decay check
-            float rel_vel = inst->state.release_velocity.process(trans_res.envelope);
-            if (trans_res.envelope < 0.002f && inst->state.active_note_id != -1) {
-                transducer::clap::EventEmitter::emitNoteOff(
-                    out_ev, s, inst->state.active_note_id, inst->state.active_key, rel_vel);
+        // Note Off / string decay check
+        float rel_vel = st.release_velocity.process(trans_res.envelope);
+        if (trans_res.envelope < 0.002f) {
+            st.onset_resolver.reset();
+            end_active_note(s, rel_vel);
+        }
 
-                auto ump_off = transducer::midi2::UmpBuilder::makeNoteOff(
-                    0, 0, static_cast<uint8_t>(inst->state.active_key), rel_vel);
-                transducer::clap::EventEmitter::emitMidi2Ump(out_ev, s, 0, ump_off);
+        // Note On: only once velocity is known and post-onset pitch has settled
+        transducer::dsp::ResolvedNote resolved{};
+        if (st.onset_resolver.on_pitch(pitch.is_valid, continuous_midi, pitch.confidence, resolved)) {
+            end_active_note(s, 0.0);
 
-                inst->state.active_note_id = -1;
-                inst->state.active_key = -1;
-            }
+            st.active_key = resolved.key;
+            st.active_note_id = ++st.next_note_id;
 
-            // Note On Pluck Trigger
-            if (trans_res.onset_detected && pitch.is_valid) {
-                inst->state.articulation_classifier.reset();
-                if (inst->state.active_note_id != -1) {
-                    transducer::clap::EventEmitter::emitNoteOff(
-                        out_ev, s, inst->state.active_note_id, inst->state.active_key);
-                }
+            transducer::clap::EventEmitter::emitNoteOn(
+                out_ev, s, st.active_note_id, st.active_key, resolved.velocity);
 
-                inst->state.active_key = static_cast<int16_t>(std::round(continuous_midi));
-                inst->state.active_note_id = ++inst->state.next_note_id;
+            auto ump_on = transducer::midi2::UmpBuilder::makeNoteOn(
+                0, 0, static_cast<uint8_t>(st.active_key), resolved.velocity);
+            transducer::clap::EventEmitter::emitMidi2Ump(out_ev, s, 0, ump_on);
+        }
 
-                transducer::clap::EventEmitter::emitNoteOn(
-                    out_ev, s, inst->state.active_note_id, inst->state.active_key, trans_res.velocity);
+        // Continuous tuning & pressure modulation (held while a new onset is unresolved)
+        if (st.active_note_id != -1 && pitch.is_valid && !st.onset_resolver.pending()) {
+            st.vibrato_detector.process(continuous_midi);
+            float semitone_bend = continuous_midi - static_cast<float>(st.active_key);
 
-                auto ump_on = transducer::midi2::UmpBuilder::makeNoteOn(
-                    0, 0, static_cast<uint8_t>(inst->state.active_key), trans_res.velocity);
-                transducer::clap::EventEmitter::emitMidi2Ump(out_ev, s, 0, ump_on);
-            }
+            transducer::clap::EventEmitter::emitTuningExpression(
+                out_ev, s, st.active_note_id, st.active_key, semitone_bend);
 
-            // Continuous Tuning & Pressure Modulation
-            if (inst->state.active_note_id != -1 && pitch.is_valid) {
-                inst->state.vibrato_detector.process(continuous_midi);
-                float semitone_bend = continuous_midi - static_cast<float>(inst->state.active_key);
+            double norm_press = std::clamp(static_cast<double>(trans_res.envelope) * 6.0, 0.0, 1.0);
+            transducer::clap::EventEmitter::emitPressureExpression(
+                out_ev, s, st.active_note_id, st.active_key, norm_press);
 
-                // CLAP Note Expression Tuning (microtonal bend)
-                transducer::clap::EventEmitter::emitTuningExpression(
-                    out_ev, s, inst->state.active_note_id, inst->state.active_key, semitone_bend);
+            transducer::clap::EventEmitter::emitBrightnessExpression(
+                out_ev, s, st.active_note_id, st.active_key, brightness);
 
-                // CLAP Note Expression Pressure (string energy)
-                double norm_press = std::clamp(static_cast<double>(trans_res.envelope) * 6.0, 0.0, 1.0);
-                transducer::clap::EventEmitter::emitPressureExpression(
-                    out_ev, s, inst->state.active_note_id, inst->state.active_key, norm_press);
-
-                // CLAP Note Expression Brightness (timbral evolution from picking location)
-                transducer::clap::EventEmitter::emitBrightnessExpression(
-                    out_ev, s, inst->state.active_note_id, inst->state.active_key, brightness);
-
-                // MIDI 2.0 UMP Type 4 Per-Note Pitch Bend
-                auto ump_bend = transducer::midi2::UmpBuilder::makePerNotePitchBend(
-                    0, 0, static_cast<uint8_t>(inst->state.active_key), semitone_bend, inst->state.pitch_bend_range);
-                transducer::clap::EventEmitter::emitMidi2Ump(out_ev, s, 0, ump_bend);
-            }
+            auto ump_bend = transducer::midi2::UmpBuilder::makePerNotePitchBend(
+                0, 0, static_cast<uint8_t>(st.active_key), semitone_bend, st.pitch_bend_range);
+            transducer::clap::EventEmitter::emitMidi2Ump(out_ev, s, 0, ump_bend);
         }
     }
 

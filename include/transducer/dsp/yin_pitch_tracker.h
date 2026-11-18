@@ -31,12 +31,20 @@ public:
         yin_buf_.fill(0.0f);
         write_pos_ = 0;
         hop_counter_ = 0;
+        valid_history_ = kWinSize;
         last_estimate_ = {};
     }
+
+    // Call when an onset is detected, before feeding the onset sample. Until enough post-onset
+    // samples exist, analysis is restricted to them (window W and lag range satisfy W + tau <=
+    // samples since onset), so pre-onset audio (previous note) cannot produce a stale pitch.
+    // Periods longer than half the post-onset history report invalid until history grows.
+    void notify_onset() { valid_history_ = 0; }
 
     std::optional<PitchEstimate> processSample(float sample, float sample_rate) {
         ring_[write_pos_] = sample;
         write_pos_ = (write_pos_ + 1) & (kWinSize - 1);
+        if (valid_history_ < kWinSize) ++valid_history_;
 
         if (++hop_counter_ < kHopSize) {
             return std::nullopt;
@@ -56,7 +64,8 @@ private:
         
         // Check energy level first (avoid computing YIN on noise/silence)
         float energy = 0.0f;
-        for (int i = 0; i < kMaxTau; ++i) {
+        const int energy_len = std::min(kMaxTau, valid_history_);
+        for (int i = 0; i < energy_len; ++i) {
             float s = ring_[(write_pos_ - 1 - i) & (kWinSize - 1)];
             energy += s * s;
         }
@@ -70,7 +79,11 @@ private:
 
         // Min lag = 18 (~2666Hz @ 48kHz), Max lag = 900 (~53Hz @ 48kHz)
         const int min_tau = std::max(10, static_cast<int>(sample_rate / 3000.0f));
-        const int max_tau = std::min(kMaxTau - 2, static_cast<int>(sample_rate / 50.0f));
+        const int max_tau = std::min({kMaxTau - 2, static_cast<int>(sample_rate / 50.0f),
+                                      valid_history_ / 2});
+        if (max_tau <= min_tau + 2) {
+            return est; // not enough post-onset history yet
+        }
 
         for (int tau = 1; tau <= max_tau; ++tau) {
             float diff = 0.0f;
@@ -111,6 +124,13 @@ private:
             }
         }
 
+        // Right after an onset the analysis window is short. Accept a period only if the window
+        // spans at least 1.5 periods; shorter windows give consistently biased (wrong-semitone) lags.
+        const int full_max_tau = std::min(kMaxTau - 2, static_cast<int>(sample_rate / 50.0f));
+        if (max_tau < full_max_tau && best_tau * 3 > max_tau * 2) {
+            return est;
+        }
+
         // 4. Parabolic interpolation
         if (best_tau > min_tau && best_tau < max_tau) {
             float s0 = yin_buf_[best_tau - 1];
@@ -139,6 +159,7 @@ private:
     alignas(64) std::array<float, kMaxTau> yin_buf_{};
     int write_pos_{0};
     int hop_counter_{0};
+    int valid_history_{kWinSize};
     PitchEstimate last_estimate_{};
 };
 

@@ -4,6 +4,7 @@
 #include <transducer/common/double_buffer_seqlock.h>
 #include <array>
 #include <cstdint>
+#include <cmath>
 #include <cstring>
 #include <cstdio>
 #include <algorithm>
