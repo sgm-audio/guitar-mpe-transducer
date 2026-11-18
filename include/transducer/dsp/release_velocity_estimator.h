@@ -20,7 +20,7 @@ class ReleaseVelocityEstimator {
 public:
     static constexpr float kMuteDropDb = 30.0f;
     static constexpr float kMuteWindowMs = 10.0f;
-    static constexpr float kFullScaleSlopeDbPerMs = 4.0f;
+    static constexpr float kFullScaleSlopeDbPerMs = 2.5f;
 
     ReleaseVelocityEstimator() { reset(); }
 

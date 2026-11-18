@@ -61,6 +61,8 @@ public:
         release_.prepare(hop_hz);
         articulation_.prepare(sample_rate);
         chord_.prepare(sample_rate);
+        // 55 Hz 1st-order HPF (removes DC, 50/60 Hz hum & body thump before onset/YIN)
+        hpf_a_ = 1.0f / (1.0f + 6.2831853f * 20.0f / std::max(sample_rate, 1000.0f));
         lvl_att_ = 1.0f - std::exp(-1.0f / (0.001f * sample_rate));
         lvl_rel_ = 1.0f - std::exp(-1.0f / (0.003f * sample_rate));
         expression_gap_ = static_cast<uint64_t>(kExpressionIntervalSeconds * sample_rate);
@@ -78,6 +80,8 @@ public:
         sm_.reset();
         chord_.reset();
         articulation_.reset();
+        hpf_x_ = 0.0f;
+        hpf_y_ = 0.0f;
         level_ = 0.0f;
         clock_ = 0;
         note_id_ = -1;
@@ -103,9 +107,14 @@ public:
     template <class Sink>
     void process_sample(float x, uint32_t offset, Sink&& sink) noexcept {
         ++clock_;
-        const TransientResult tr = transient_.process(x);
+        // Conditioned signal for onset/YIN/level; raw `x` stays for brightness & articulation.
+        const float cond = hpf_a_ * (hpf_y_ + x - hpf_x_);
+        hpf_x_ = x;
+        hpf_y_ = (std::fabs(cond) < 1e-20f) ? 0.0f : cond;
 
-        const float ax = std::fabs(x);
+        const TransientResult tr = transient_.process(cond);
+
+        const float ax = std::fabs(cond);
         level_ += (ax > level_ ? lvl_att_ : lvl_rel_) * (ax - level_);
         if (level_ < 1e-20f) level_ = 0.0f;
 
@@ -116,7 +125,7 @@ public:
         articulation_.feed(x);
         brightness_value_ = brightness_.process(x, sr_);
 
-        const auto pitch = tracker_.processSample(x, sr_);
+        const auto pitch = tracker_.processSample(cond, sr_);
         if (pitch.has_value()) on_hop(*pitch, offset, sink);
     }
 
@@ -212,7 +221,7 @@ private:
         if (note_id_ == -1) return;
         if (!fresh_ && (clock_ - last_expression_clock_) < expression_gap_) return;
 
-        const float pressure = std::clamp(level_ * 6.0f, 0.0f, 1.0f);
+        const float pressure = map_pressure(level_, cfg_.gate_threshold);
         const float brightness = brightness_value_;
         bool any = false;
 
@@ -264,6 +273,17 @@ private:
     ArticulationClassifier articulation_{};
     ChordGuard chord_{};
 
+    // Noise-gated dB pressure curve: silent below gate, smooth [-48 dBFS .. -6 dBFS] -> [0, 1].
+    static float map_pressure(float level, float gate) noexcept {
+        if (level <= gate * 1.2f) return 0.0f;
+        const float db = 20.0f * std::log10(std::max(level, 1e-6f));
+        const float norm = std::clamp((db + 48.0f) / 42.0f, 0.0f, 1.0f);
+        return norm * norm;
+    }
+
+    float hpf_a_{0.992f};
+    float hpf_x_{0.0f};
+    float hpf_y_{0.0f};
     float lvl_att_{0.0f};
     float lvl_rel_{0.0f};
     float level_{0.0f};

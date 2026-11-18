@@ -16,8 +16,8 @@ struct PitchEstimate {
 
 class YinPitchTracker {
 public:
-    static constexpr int kWinSize = 2048;
-    static constexpr int kMaxTau = 1024;
+    static constexpr int kWinSize = 4096;
+    static constexpr int kMaxTau = 2048;
     static constexpr int kHopSize = 64; // Evaluate every 64 samples (~1.33ms @ 48kHz)
 
     YinPitchTracker(float threshold = 0.20f)
@@ -32,6 +32,7 @@ public:
         write_pos_ = 0;
         hop_counter_ = 0;
         valid_history_ = kWinSize;
+        prev_tau_ = 0.0f;
         last_estimate_ = {};
     }
 
@@ -39,7 +40,7 @@ public:
     // samples exist, analysis is restricted to them (window W and lag range satisfy W + tau <=
     // samples since onset), so pre-onset audio (previous note) cannot produce a stale pitch.
     // Periods longer than half the post-onset history report invalid until history grows.
-    void notify_onset() { valid_history_ = 0; }
+    void notify_onset() { valid_history_ = 0; prev_tau_ = 0.0f; }
 
     std::optional<PitchEstimate> processSample(float sample, float sample_rate) {
         ring_[write_pos_] = sample;
@@ -69,7 +70,7 @@ private:
             float s = ring_[(write_pos_ - 1 - i) & (kWinSize - 1)];
             energy += s * s;
         }
-        if (energy < 0.001f) {
+        if (energy_len == 0 || (energy / static_cast<float>(energy_len)) < 1e-6f) {
             return est;
         }
 
@@ -109,7 +110,16 @@ private:
             } else if (yin_buf_[tau] < yin_buf_[best_tau]) {
                 best_tau = tau; // still descending into the minimum
             } else {
-                break;          // passed the local minimum; yin_buf_[best_tau + 1] is valid
+                // Octave-up guard: on bridge pickups / fresh strings the 2nd harmonic can briefly
+                // dip below threshold at T0/2. If we were tracking ~2*best_tau on the previous frame
+                // and 2*best_tau is still strongly periodic, continue to 2*best_tau.
+                if (prev_tau_ > 0.0f &&
+                    std::fabs(static_cast<float>(best_tau) - 0.5f * prev_tau_) < 0.15f * prev_tau_ &&
+                    best_tau * 2 + 2 <= max_tau) {
+                    best_tau = -1; // keep searching toward prev_tau_
+                } else {
+                    break; // passed the local minimum; yin_buf_[best_tau + 1] is valid
+                }
             }
         }
 
@@ -151,6 +161,7 @@ private:
                 est.midi_note = midi;
                 est.confidence = std::clamp(1.0f - s1, 0.0f, 1.0f);
                 est.is_valid = true;
+                prev_tau_ = refined_tau;
             }
         }
 
@@ -182,6 +193,7 @@ private:
     int write_pos_{0};
     int hop_counter_{0};
     int valid_history_{kWinSize};
+    float prev_tau_{0.0f};
     PitchEstimate last_estimate_{};
 };
 

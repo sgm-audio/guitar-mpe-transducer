@@ -133,3 +133,48 @@ TEST_CASE("Guitar fixture: short unpitched fret noise produces zero notes", "[fi
     auto ev = run_pipeline(x);
     for (const auto& e : ev) REQUIRE(e.type != CoreEvent::Type::kNoteOn);
 }
+
+TEST_CASE("Guitar fixture: DC offset + 60 Hz pickup hum does not break tracking", "[fixture][guitar]") {
+    std::vector<float> x(24000, 0.0f);
+    add_pluck(x, 1000, 146.83f, 0.4f, 0.5f); // D3 = 50
+    for (size_t i = 0; i < x.size(); ++i) {
+        x[i] += 0.05f + 0.008f * std::sin(kTwoPi * 60.0f * static_cast<float>(i) / kSr);
+    }
+    auto ev = run_pipeline(x);
+    int ons = 0;
+    int16_t key = -1;
+    for (const auto& e : ev) if (e.type == CoreEvent::Type::kNoteOn) { ++ons; key = e.key; }
+    REQUIRE(ons == 1);
+    REQUIRE(key == 50);
+}
+
+TEST_CASE("Guitar fixture: pressure stays bounded on low-level string noise", "[fixture][guitar][pressure]") {
+    std::vector<float> x(24000, 0.0f);
+    add_pluck(x, 1000, 220.0f, 0.08f, 0.2f);
+    std::mt19937 rng(7);
+    std::uniform_real_distribution<float> n(-0.003f, 0.003f);
+    for (float& s : x) s += n(rng);
+
+    auto ev = run_pipeline(x);
+    float max_p = 0.0f;
+    for (const auto& e : ev) {
+        if (e.type == CoreEvent::Type::kPressure) max_p = std::max(max_p, e.value);
+    }
+    REQUIRE(max_p < 0.35f);
+}
+
+TEST_CASE("Guitar fixture: continuous +35 cent bend maps accurately", "[fixture][guitar][cents]") {
+    std::vector<float> x(24000, 0.0f);
+    double ph = 0.0;
+    for (size_t i = 1000; i < x.size(); ++i) {
+        float frac = (i < 8000) ? 0.0f : std::min(1.0f, static_cast<float>(i - 8000) / (0.1f * kSr));
+        float f = 220.0f * std::pow(2.0f, (0.35f * frac) / 12.0f);
+        float att = std::min(static_cast<float>(i - 1000) / (0.001f * kSr), 1.0f);
+        x[i] = 0.4f * att * static_cast<float>(std::sin(ph));
+        ph += kTwoPi * f / kSr;
+    }
+    auto ev = run_pipeline(x);
+    float last_bend = 0.0f;
+    for (const auto& e : ev) if (e.type == CoreEvent::Type::kBend) last_bend = e.value;
+    REQUIRE_THAT(last_bend, Catch::Matchers::WithinAbs(0.35f, 0.05f)); // within 5 cents
+}

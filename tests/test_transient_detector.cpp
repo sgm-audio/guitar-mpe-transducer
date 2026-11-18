@@ -97,3 +97,13 @@ TEST_CASE("TransientDetector ignores slow swells", "[dsp][transient][false-trigg
     }
     REQUIRE(run(d, x).empty());
 }
+
+TEST_CASE("TransientDetector triggers within 2 ms of pluck onset", "[dsp][transient][timing]") {
+    transducer::dsp::TransientDetector d(0.012f);
+    std::vector<float> x(4000, 0.0f);
+    add_pluck(x, 1000, 220.0f, 0.4f, 0.4f);
+    auto o = run(d, x);
+    REQUIRE(o.size() == 1);
+    REQUIRE(o[0].sample >= 1000);
+    REQUIRE(o[0].sample - 1000 <= 96); // <= 2 ms @ 48 kHz
+}

@@ -97,3 +97,33 @@ TEST_CASE("YinPitchTracker worst-case hop cost stays well inside the hop period"
     INFO("worst hop = " << worst_us << " us of " << hop_us << " us");
     REQUIRE(worst_us < hop_us); // generous: unoptimised/CI machines vary
 }
+
+TEST_CASE("YinPitchTracker tracks low E2 at 96 kHz", "[dsp][yin]") {
+    constexpr float kSr = 96000.0f;
+    constexpr float kTwoPi = 6.28318530718f;
+    transducer::dsp::YinPitchTracker tracker;
+    float midi = 0.0f;
+    bool ok = false;
+    for (int i = 0; i < 9600; ++i) {
+        float x = 0.5f * std::sin(kTwoPi * 82.41f * static_cast<float>(i) / kSr);
+        auto r = tracker.processSample(x, kSr);
+        if (r && r->is_valid) { midi = r->midi_note; ok = true; }
+    }
+    REQUIRE(ok);
+    REQUIRE_THAT(midi, Catch::Matchers::WithinAbs(40.0f, 0.15f));
+}
+
+TEST_CASE("YinPitchTracker resists octave-up flip when 2nd harmonic dominates", "[dsp][yin]") {
+    constexpr float kSr = 48000.0f;
+    constexpr float kTwoPi = 6.28318530718f;
+    transducer::dsp::YinPitchTracker tracker;
+    float midi = 0.0f;
+    for (int i = 0; i < 4800; ++i) {
+        float ph = kTwoPi * 110.0f * static_cast<float>(i) / kSr;
+        float w2 = (i < 2400) ? 0.3f : 1.8f; // 2nd harmonic swells past fundamental mid-note
+        float x = 0.35f * (std::sin(ph) + w2 * std::sin(2 * ph));
+        auto r = tracker.processSample(x, kSr);
+        if (r && r->is_valid) midi = r->midi_note;
+    }
+    REQUIRE_THAT(midi, Catch::Matchers::WithinAbs(45.0f, 0.25f));
+}
