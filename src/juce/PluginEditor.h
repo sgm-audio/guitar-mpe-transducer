@@ -25,6 +25,7 @@ private:
     std::unique_ptr<jive::GuiItem> root_item_;
     LiveTelemetryMeter telemetry_meter_;
     juce::Component* telemetry_slot_{nullptr};
+    juce::ComboBox* preset_combo_{nullptr};
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(GuitarTransducerAudioProcessorEditor)
 };

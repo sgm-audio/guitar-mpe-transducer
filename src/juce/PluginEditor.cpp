@@ -1,11 +1,15 @@
 #include "PluginEditor.h"
+#include <transducer/presets/factory_presets.h>
 
 namespace {
 constexpr const char* kEditorXml = R"xml(
 <Component id="root" width="580" height="370" flex-direction="column" padding="16" gap="12">
-    <Component id="header" height="28" flex-direction="row" justify-content="space-between" align-items="center">
+    <Component id="header" height="28" flex-direction="row" justify-content="space-between" align-items="center" gap="10">
         <Text font-size="15" font-weight="bold">GUITAR MPE TRANSDUCER</Text>
-        <Text id="badge" font-size="11">CLAP / MPE / MIDI 2.0</Text>
+        <Component flex-direction="row" align-items="center" gap="10">
+            <ComboBox id="preset_selector" width="185" height="24" />
+            <Text id="badge" font-size="11">CLAP / MPE / MIDI 2.0</Text>
+        </Component>
     </Component>
 
     <Component id="telemetry-slot" height="106" flex-shrink="0" />
@@ -120,6 +124,42 @@ GuitarTransducerAudioProcessorEditor::GuitarTransducerAudioProcessorEditor(
             };
             sync_choice_combo("routing_mode");
             sync_choice_combo("output_dialect");
+
+            // Factory preset selector -> serializes GTRJ v1 state and calls processor_.setStateInformation
+            preset_combo_ = dynamic_cast<juce::ComboBox*>(root_comp->findChildWithID("preset_selector"));
+            if (preset_combo_ != nullptr) {
+                for (size_t i = 0; i < transducer::presets::kNumFactoryPresets; ++i) {
+                    preset_combo_->addItem(transducer::presets::kFactoryPresets[i].name,
+                                           static_cast<int>(i) + 1);
+                }
+                preset_combo_->setSelectedItemIndex(processor_.getCurrentProgram(), juce::dontSendNotification);
+                preset_combo_->onChange = [this] {
+                    const int idx = preset_combo_->getSelectedItemIndex();
+                    if (idx < 0 || idx >= static_cast<int>(transducer::presets::kNumFactoryPresets)) return;
+                    const auto& pr = transducer::presets::kFactoryPresets[static_cast<size_t>(idx)];
+
+                    juce::ValueTree state(processor_.apvts().state.getType());
+                    state.setProperty("magic", "GTRJ", nullptr);
+                    state.setProperty("version", GuitarTransducerAudioProcessor::kStateVersion, nullptr);
+                    auto add_param = [&](const char* id, float val) {
+                        juce::ValueTree p_node("PARAM");
+                        p_node.setProperty("id", id, nullptr);
+                        p_node.setProperty("value", val, nullptr);
+                        state.appendChild(p_node, nullptr);
+                    };
+                    add_param("bend_range", pr.bend_range);
+                    add_param("transient_sensitivity", pr.transient_sensitivity);
+                    add_param("gate_threshold", pr.gate_threshold);
+                    add_param("routing_mode", static_cast<float>(pr.routing_mode));
+                    add_param("output_dialect", static_cast<float>(pr.output_dialect));
+
+                    if (auto xml = state.createXml()) {
+                        juce::MemoryBlock block;
+                        juce::AudioProcessor::copyXmlToBinary(*xml, block);
+                        processor_.setStateInformation(block.getData(), static_cast<int>(block.getSize()));
+                    }
+                };
+            }
         }
     }
 
