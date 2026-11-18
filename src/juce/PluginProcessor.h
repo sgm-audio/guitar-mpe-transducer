@@ -3,6 +3,7 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <transducer/dsp/string_pipeline.h>
 #include <transducer/voice/voice_allocator.h>
+#include <transducer/presets/factory_presets.h>
 
 #include <array>
 #include <atomic>
@@ -30,10 +31,10 @@ public:
     bool isMidiEffect() const override { return false; }
     double getTailLengthSeconds() const override { return 0.0; }
 
-    int getNumPrograms() override { return 1; }
-    int getCurrentProgram() override { return 0; }
-    void setCurrentProgram(int) override {}
-    const juce::String getProgramName(int) override { return {}; }
+    int getNumPrograms() override;
+    int getCurrentProgram() override;
+    void setCurrentProgram(int index) override;
+    const juce::String getProgramName(int index) override;
     void changeProgramName(int, const juce::String&) override {}
 
     void getStateInformation(juce::MemoryBlock& destData) override;
@@ -72,6 +73,7 @@ private:
     std::array<float, kMaxStrings> string_pressure_{};
     std::array<float, 16> rpn_sent_range_{};
     int next_mono_mpe_ch_{2}; // MPE member channels 2..16 (channel 1 is master)
+    int current_program_{0};
 
     transducer::voice::VoiceAllocator voice_allocator_{};
     juce::MidiBuffer scratch_midi_{};

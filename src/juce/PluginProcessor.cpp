@@ -252,6 +252,40 @@ void GuitarTransducerAudioProcessor::processBlock(juce::AudioBuffer<float>& buff
     midiMessages.swapWith(scratch_midi_);
 }
 
+int GuitarTransducerAudioProcessor::getNumPrograms()
+{
+    return static_cast<int>(transducer::presets::kNumFactoryPresets);
+}
+
+int GuitarTransducerAudioProcessor::getCurrentProgram()
+{
+    return current_program_;
+}
+
+const juce::String GuitarTransducerAudioProcessor::getProgramName(int index)
+{
+    if (index < 0 || index >= getNumPrograms()) return {};
+    return transducer::presets::kFactoryPresets[static_cast<size_t>(index)].name;
+}
+
+void GuitarTransducerAudioProcessor::setCurrentProgram(int index)
+{
+    if (index < 0 || index >= getNumPrograms()) return;
+    current_program_ = index;
+    const auto& p = transducer::presets::kFactoryPresets[static_cast<size_t>(index)];
+
+    auto set_norm = [&](const char* id, float plain) {
+        if (auto* param = apvts_.getParameter(id)) {
+            param->setValueNotifyingHost(param->convertTo0to1(plain));
+        }
+    };
+    set_norm(kParamBendRange, p.bend_range);
+    set_norm(kParamTransientSens, p.transient_sensitivity);
+    set_norm(kParamGateThreshold, p.gate_threshold);
+    set_norm(kParamRoutingMode, static_cast<float>(p.routing_mode));
+    set_norm(kParamOutputDialect, static_cast<float>(p.output_dialect));
+}
+
 void GuitarTransducerAudioProcessor::getStateInformation(juce::MemoryBlock& destData)
 {
     auto state = apvts_.copyState();
