@@ -41,6 +41,7 @@ public:
 
     // Lock-free audio -> GUI telemetry (written with memory_order_relaxed on audio thread)
     struct Telemetry {
+        std::atomic<int> last_active_string{-1};
         std::atomic<int> midi_note{-1};
         std::atomic<float> cents_offset{0.0f};
         std::atomic<float> pressure{0.0f};
@@ -66,6 +67,9 @@ private:
     // Shared DSP core (zero duplication with CLAP)
     std::array<transducer::dsp::StringPipeline, kMaxStrings> strings_{};
     std::array<int, kMaxStrings> string_midi_ch_{}; // 1-based MIDI channel (2..16 for MPE)
+    std::array<int, kMaxStrings> string_note_{};
+    std::array<float, kMaxStrings> string_cents_{};
+    std::array<float, kMaxStrings> string_pressure_{};
     std::array<float, 16> rpn_sent_range_{};
     int next_mono_mpe_ch_{2}; // MPE member channels 2..16 (channel 1 is master)
 

@@ -26,6 +26,9 @@ GuitarTransducerAudioProcessor::GuitarTransducerAudioProcessor()
     output_dialect_param_ = apvts_.getRawParameterValue(kParamOutputDialect);
 
     string_midi_ch_.fill(2);
+    string_note_.fill(-1);
+    string_cents_.fill(0.0f);
+    string_pressure_.fill(0.0f);
     rpn_sent_range_.fill(-1.0f);
 }
 
@@ -82,6 +85,9 @@ void GuitarTransducerAudioProcessor::prepareToPlay(double sampleRate, int /*samp
     for (size_t i = 0; i < kMaxStrings; ++i) {
         strings_[i].prepare(sr, static_cast<int>(i));
         string_midi_ch_[i] = static_cast<int>(i) + 2; // MPE member channels 2..7
+        string_note_[i] = -1;
+        string_cents_[i] = 0.0f;
+        string_pressure_[i] = 0.0f;
     }
     rpn_sent_range_.fill(-1.0f);
     next_mono_mpe_ch_ = 2;
@@ -95,6 +101,14 @@ void GuitarTransducerAudioProcessor::prepareToPlay(double sampleRate, int /*samp
 void GuitarTransducerAudioProcessor::releaseResources()
 {
     for (auto& s : strings_) s.reset();
+    string_note_.fill(-1);
+    string_cents_.fill(0.0f);
+    string_pressure_.fill(0.0f);
+    telemetry_.last_active_string.store(-1, std::memory_order_relaxed);
+    telemetry_.midi_note.store(-1, std::memory_order_relaxed);
+    telemetry_.cents_offset.store(0.0f, std::memory_order_relaxed);
+    telemetry_.pressure.store(0.0f, std::memory_order_relaxed);
+    telemetry_.string_mask.store(0, std::memory_order_relaxed);
     voice_allocator_.reset();
 }
 
@@ -157,10 +171,12 @@ void GuitarTransducerAudioProcessor::processBlock(juce::AudioBuffer<float>& buff
 
         switch (e.type) {
         case T::kNoteOn: {
-            if (si == 0 || !strings_[0].note_active()) {
-                telemetry_.midi_note.store(note, std::memory_order_relaxed);
-                telemetry_.cents_offset.store(0.0f, std::memory_order_relaxed);
-            }
+            string_note_[si] = note;
+            string_cents_[si] = 0.0f;
+            telemetry_.last_active_string.store(static_cast<int>(si), std::memory_order_relaxed);
+            telemetry_.midi_note.store(string_note_[si], std::memory_order_relaxed);
+            telemetry_.cents_offset.store(0.0f, std::memory_order_relaxed);
+            telemetry_.pressure.store(string_pressure_[si], std::memory_order_relaxed);
             if (rpn_sent_range_[static_cast<size_t>(ch - 1)] != bend_range) {
                 const int semi = std::clamp(static_cast<int>(std::round(bend_range)), 1, 96);
                 scratch_midi_.addEvent(juce::MidiMessage::controllerEvent(ch, 101, 0), pos);
@@ -173,26 +189,32 @@ void GuitarTransducerAudioProcessor::processBlock(juce::AudioBuffer<float>& buff
             break;
         }
         case T::kNoteOff:
-            if (si == 0) {
-                telemetry_.midi_note.store(-1, std::memory_order_relaxed);
-                telemetry_.cents_offset.store(0.0f, std::memory_order_relaxed);
-                telemetry_.pressure.store(0.0f, std::memory_order_relaxed);
-            }
+            string_note_[si] = -1;
+            string_cents_[si] = 0.0f;
+            string_pressure_[si] = 0.0f;
+            telemetry_.last_active_string.store(static_cast<int>(si), std::memory_order_relaxed);
+            telemetry_.midi_note.store(-1, std::memory_order_relaxed);
+            telemetry_.cents_offset.store(0.0f, std::memory_order_relaxed);
+            telemetry_.pressure.store(0.0f, std::memory_order_relaxed);
             scratch_midi_.addEvent(juce::MidiMessage::noteOff(ch, note, std::clamp(e.value, 0.0f, 1.0f)), pos);
             break;
         case T::kBend: {
-            if (si == 0) {
-                telemetry_.cents_offset.store(e.value * 100.0f, std::memory_order_relaxed);
-            }
+            string_cents_[si] = e.value * 100.0f;
+            telemetry_.last_active_string.store(static_cast<int>(si), std::memory_order_relaxed);
+            telemetry_.midi_note.store(string_note_[si], std::memory_order_relaxed);
+            telemetry_.cents_offset.store(string_cents_[si], std::memory_order_relaxed);
+            telemetry_.pressure.store(string_pressure_[si], std::memory_order_relaxed);
             const float norm = std::clamp(e.value / bend_range, -1.0f, 1.0f);
             const int wheel = std::clamp(static_cast<int>(std::round((norm * 0.5f + 0.5f) * 16383.0f)), 0, 16383);
             scratch_midi_.addEvent(juce::MidiMessage::pitchWheel(ch, wheel), pos);
             break;
         }
         case T::kPressure: {
-            if (si == 0) {
-                telemetry_.pressure.store(std::clamp(e.value, 0.0f, 1.0f), std::memory_order_relaxed);
-            }
+            string_pressure_[si] = std::clamp(e.value, 0.0f, 1.0f);
+            telemetry_.last_active_string.store(static_cast<int>(si), std::memory_order_relaxed);
+            telemetry_.midi_note.store(string_note_[si], std::memory_order_relaxed);
+            telemetry_.cents_offset.store(string_cents_[si], std::memory_order_relaxed);
+            telemetry_.pressure.store(string_pressure_[si], std::memory_order_relaxed);
             const int press = std::clamp(static_cast<int>(std::round(e.value * 127.0f)), 0, 127);
             scratch_midi_.addEvent(juce::MidiMessage::channelPressureChange(ch, press), pos);
             break;
@@ -217,6 +239,12 @@ void GuitarTransducerAudioProcessor::processBlock(juce::AudioBuffer<float>& buff
         if (strings_[static_cast<size_t>(c)].note_active()) {
             mask |= static_cast<uint8_t>(1u << c);
         }
+    }
+    if (mask == 0) {
+        telemetry_.last_active_string.store(-1, std::memory_order_relaxed);
+        telemetry_.midi_note.store(-1, std::memory_order_relaxed);
+        telemetry_.cents_offset.store(0.0f, std::memory_order_relaxed);
+        telemetry_.pressure.store(0.0f, std::memory_order_relaxed);
     }
     telemetry_.string_mask.store(mask, std::memory_order_relaxed);
     telemetry_.active_channels.store(static_cast<uint8_t>(num_ch), std::memory_order_relaxed);

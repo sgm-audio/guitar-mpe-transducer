@@ -39,10 +39,13 @@ public:
         const auto text_dim = juce::Colour(0xFF9CA3AF);
         const auto track_bg = juce::Colour(0xFF0D0F12);
 
-        // 1. Pitch readout (MIDI note + name)
-        g.setColour(text_dim);
+        // 1. Pitch readout (MIDI note + name + focused string label)
+        g.setColour(last_active_string_ >= 0 ? accent : text_dim);
         g.setFont(juce::FontOptions(11.0f));
-        g.drawText("PITCH", left.removeFromTop(14), juce::Justification::centredLeft);
+        const juce::String pitch_hdr = (last_active_string_ >= 0)
+            ? ("PITCH · S" + juce::String(last_active_string_ + 1))
+            : "PITCH";
+        g.drawText(pitch_hdr, left.removeFromTop(14), juce::Justification::centredLeft);
 
         g.setColour(midi_note_ >= 0 ? text_main : text_dim);
         g.setFont(juce::FontOptions(26.0f).withStyle("Bold"));
@@ -100,11 +103,15 @@ public:
             auto cell = string_strip.withX(string_strip.getX() + i * cell_w).withWidth(cell_w - 4);
             const bool available = (i < active_channels_);
             const bool active = available && ((string_mask_ & static_cast<uint8_t>(1u << i)) != 0);
+            const bool focused = active && (i == last_active_string_);
 
-            g.setColour(active ? accent.withAlpha(0.22f) : track_bg);
+            g.setColour(focused ? accent.withAlpha(0.40f)
+                                : (active ? accent.withAlpha(0.16f) : track_bg));
             g.fillRoundedRectangle(cell.toFloat(), 3.0f);
-            g.setColour(active ? accent : (available ? text_dim : juce::Colour(0xFF374151)));
-            g.drawRoundedRectangle(cell.toFloat(), 3.0f, 1.0f);
+            g.setColour(focused ? accent
+                                : (active ? accent.withAlpha(0.65f)
+                                          : (available ? text_dim : juce::Colour(0xFF374151))));
+            g.drawRoundedRectangle(cell.toFloat(), 3.0f, focused ? 1.5f : 1.0f);
             g.drawText("S" + juce::String(i + 1), cell, juce::Justification::centred);
         }
     }
@@ -112,15 +119,17 @@ public:
 private:
     void timerCallback() override
     {
+        const int last_str = telemetry_.last_active_string.load(std::memory_order_relaxed);
         const int note = telemetry_.midi_note.load(std::memory_order_relaxed);
         const float cents = telemetry_.cents_offset.load(std::memory_order_relaxed);
         const float press = telemetry_.pressure.load(std::memory_order_relaxed);
         const uint8_t mask = telemetry_.string_mask.load(std::memory_order_relaxed);
         const uint8_t ch = telemetry_.active_channels.load(std::memory_order_relaxed);
 
-        if (note != midi_note_ || std::abs(cents - cents_) > 0.2f ||
+        if (last_str != last_active_string_ || note != midi_note_ || std::abs(cents - cents_) > 0.2f ||
             std::abs(press - pressure_) > 0.01f || mask != string_mask_ || ch != active_channels_)
         {
+            last_active_string_ = last_str;
             midi_note_ = note;
             cents_ = cents;
             pressure_ = press;
@@ -142,6 +151,7 @@ private:
     }
 
     const GuitarTransducerAudioProcessor::Telemetry& telemetry_;
+    int last_active_string_{-1};
     int midi_note_{-1};
     float cents_{0.0f};
     float pressure_{0.0f};
