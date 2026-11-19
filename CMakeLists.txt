@@ -108,6 +108,7 @@ if(TRANSDUCER_BUILD_JUCE)
             JUCE_WEB_BROWSER=0
             JUCE_USE_CURL=0
             JUCE_VST3_CAN_REPLACE_VST2=0
+            JIVE_IS_PLUGIN_PROJECT=1
     )
 
     target_link_libraries(guitar_mpe_transducer_juce
