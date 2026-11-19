@@ -127,7 +127,7 @@ if(TRANSDUCER_BUILD_JUCE)
     if(TRANSDUCER_BUILD_JUCE_CLAP)
         clap_juce_extensions_plugin(
             TARGET guitar_mpe_transducer_juce
-            CLAP_ID "com.sgm-audio.guitar-mpe-transducer"
+            CLAP_ID "com.sgm-audio.guitar-mpe-transducer.juce"
             CLAP_FEATURES audio-effect note-effect utility
         )
     endif()

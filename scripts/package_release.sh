@@ -43,17 +43,20 @@ fi
 rm -rf "$STAGE_DIR" "$ZIP_PATH"
 mkdir -p "$STAGE_DIR/clap"
 
-# Copy native CLAP binary/bundle
-find "$BUILD_DIR" -maxdepth 4 -name "guitar_mpe_transducer.clap" -exec cp -R {} "$STAGE_DIR/clap/" \;
+# Copy native headless CLAP binary/bundle
+find "$BUILD_DIR" -maxdepth 4 -name "guitar_mpe_transducer.clap" -prune -exec cp -R {} "$STAGE_DIR/clap/" \;
 
 # Copy JUCE bundles if built
 if [ "$BUILD_JUCE" = "ON" ]; then
     mkdir -p "$STAGE_DIR/vst3" "$STAGE_DIR/standalone"
-    find "$BUILD_DIR" -name "*.vst3" -exec cp -R {} "$STAGE_DIR/vst3/" \;
-    find "$BUILD_DIR" -path "*Standalone*" \( -name "Guitar MPE Transducer*" -o -name "*.app" -o -name "*.exe" \) -maxdepth 6 -exec cp -R {} "$STAGE_DIR/standalone/" \;
+    find "$BUILD_DIR" -name "*.vst3" -prune -exec cp -R {} "$STAGE_DIR/vst3/" \;
+    if [ "$BUILD_JUCE_CLAP" = "ON" ]; then
+        find "$BUILD_DIR" -path "*CLAP*" -name "*.clap" -prune -exec cp -R {} "$STAGE_DIR/clap/" \;
+    fi
+    find "$BUILD_DIR" -path "*Standalone*" \( -name "Guitar MPE Transducer*" -o -name "*.app" -o -name "*.exe" \) -maxdepth 6 -prune -exec cp -R {} "$STAGE_DIR/standalone/" \;
     if [ "$OS_NAME" = "macos" ]; then
         mkdir -p "$STAGE_DIR/au"
-        find "$BUILD_DIR" -name "*.component" -exec cp -R {} "$STAGE_DIR/au/" \;
+        find "$BUILD_DIR" -name "*.component" -prune -exec cp -R {} "$STAGE_DIR/au/" \;
     fi
 fi
 
@@ -68,7 +71,8 @@ guitar-mpe-transducer v${VERSION} (${OS_NAME})
 =============================================
 
 Install Notes (unsigned / unnotarized local build):
-- CLAP:       Copy clap/guitar_mpe_transducer.clap to ~/.clap/ (Linux), ~/Library/Audio/Plug-Ins/CLAP/ (macOS), or %COMMONPROGRAMFILES%\\CLAP\\ (Windows).
+- CLAP:       Copy clap/*.clap to ~/.clap/ (Linux), ~/Library/Audio/Plug-Ins/CLAP/ (macOS), or %COMMONPROGRAMFILES%\\CLAP\\ (Windows).
+              ("Guitar MPE Transducer.clap" includes the JUCE GUI; "guitar_mpe_transducer.clap" is the headless native CLAP.)
 - VST3:       Copy vst3/*.vst3 to ~/.vst3/ (Linux), ~/Library/Audio/Plug-Ins/VST3/ (macOS), or %COMMONPROGRAMFILES%\\VST3\\ (Windows).
 - AU (macOS): Copy au/*.component to ~/Library/Audio/Plug-Ins/Components/ and run \`killall -9 AudioComponentRegistrar\` if needed.
 - Standalone: Run the binary/app in standalone/ directly (no installation required).

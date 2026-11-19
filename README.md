@@ -23,7 +23,7 @@
                                                    └─► MIDI 2.0 UMP (Type 4 Per-Note Pitch Bend)
 ```
 
-## Building
+## Building (Headless Native CLAP)
 
 Requirements:
 - CMake 3.24+
@@ -35,14 +35,18 @@ cmake --build build --config Release
 ctest --test-dir build -C Release --output-on-failure
 ```
 
-## Building (JUCE VST3 / AU / Standalone)
+> **Note:** The default `guitar_mpe_transducer.clap` target is headless (no `CLAP_EXT_GUI`). For a CLAP plugin with the custom GUI, build the JUCE target below.
 
-To also build the JUCE 8 frontend with the dark JIVE GUI (and optional CLAP wrapper via `clap-juce-extensions`):
+## Building (JUCE VST3 / AU / Standalone / CLAP with UI)
+
+To build the JUCE frontend with the JIVE GUI (including the GUI CLAP wrapper via `clap-juce-extensions`):
 
 ```bash
 cmake -B build-juce -S . -DCMAKE_BUILD_TYPE=Release -DTRANSDUCER_BUILD_JUCE=ON -DTRANSDUCER_BUILD_JUCE_CLAP=ON
 cmake --build build-juce --config Release --parallel
 ```
+
+The GUI CLAP binary is output at `build-juce/guitar_mpe_transducer_juce_artefacts/Release/CLAP/Guitar MPE Transducer.clap` (distinct CLAP ID `com.sgm-audio.guitar-mpe-transducer.juce`).
 
 ## Factory Presets
 
