@@ -61,6 +61,16 @@ target_compile_features(transducer_offline_harness PRIVATE cxx_std_20)
 add_subdirectory(tests)
 
 if(TRANSDUCER_BUILD_JUCE)
+    juce_add_binary_data(GuitarMpeUiAssets
+        SOURCES
+            assets/ui/chassis_frame.png
+            assets/ui/lava_rock_tile.png
+            assets/ui/knob_cap.png
+            assets/ui/combobox_bar.png
+            assets/ui/active_tab_lava.png
+            assets/ui/bronze_header_strip.png
+    )
+
     set(TRANSDUCER_JUCE_FORMATS VST3 Standalone)
     if(APPLE)
         list(APPEND TRANSDUCER_JUCE_FORMATS AU)
@@ -101,10 +111,9 @@ if(TRANSDUCER_BUILD_JUCE)
 
     target_link_libraries(guitar_mpe_transducer_juce
         PRIVATE
+            GuitarMpeUiAssets
             juce::juce_audio_utils
             juce::juce_dsp
-            jive::jive_layouts
-            jive::jive_style_sheets
         PUBLIC
             juce::juce_recommended_config_flags
             juce::juce_recommended_lto_flags
@@ -118,4 +127,36 @@ if(TRANSDUCER_BUILD_JUCE)
             CLAP_FEATURES audio-effect note-effect utility
         )
     endif()
+
+    juce_add_console_app(GuiPreview
+        PRODUCT_NAME "GuiPreview"
+    )
+
+    target_sources(GuiPreview
+        PRIVATE
+            tools/gui_preview_main.cpp
+            src/juce/PluginProcessor.cpp
+            src/juce/PluginEditor.cpp
+    )
+
+    target_include_directories(GuiPreview
+        PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/include
+    )
+
+    target_compile_definitions(GuiPreview
+        PRIVATE
+            JUCE_WEB_BROWSER=0
+            JUCE_USE_CURL=0
+            JucePlugin_Name="Guitar MPE Transducer"
+    )
+
+    target_link_libraries(GuiPreview
+        PRIVATE
+            GuitarMpeUiAssets
+            juce::juce_audio_processors
+            juce::juce_dsp
+            juce::juce_gui_basics
+            juce::juce_recommended_config_flags
+    )
 endif()

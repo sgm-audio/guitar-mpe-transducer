@@ -52,6 +52,7 @@ public:
 
     juce::AudioProcessorValueTreeState& apvts() noexcept { return apvts_; }
     const Telemetry& telemetry() const noexcept { return telemetry_; }
+    Telemetry& mutableTelemetry() noexcept { return telemetry_; }
 
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
 
