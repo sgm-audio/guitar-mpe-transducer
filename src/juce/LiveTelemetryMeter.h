@@ -86,23 +86,17 @@ public:
                 pillW,
                 pillH);
 
-            // Subtle compact recessed pill + soft inner amber ambient glow
+            // Compact recessed pill (no inner glow)
             g.setColour(juce::Colour(0xC80B0806));
             g.fillRoundedRectangle(pill, 4.0f);
-            if (midi_note_ >= 0) {
-                juce::ColourGradient pillGlow(moltenOrange.withAlpha(0.16f), pill.getCentreX(), pill.getCentreY(),
-                                              juce::Colours::transparentBlack, pill.getX(), pill.getCentreY(), true);
-                g.setGradientFill(pillGlow);
-                g.fillRoundedRectangle(pill.reduced(1.0f), 3.0f);
-            }
             g.setColour(bronzeBorder.withAlpha(0.55f));
             g.drawRoundedRectangle(pill.reduced(0.5f), 4.0f, 0.9f);
 
             const auto textBox = pill.reduced(6.0f, 1.0f);
             if (midi_note_ >= 0) {
-                transducer::ui::drawGlowingAmberText(
+                transducer::ui::drawMatteOrangeText(
                     g, noteText, noteFont, textBox, juce::Justification::centredLeft,
-                    juce::Colour(0xFFFFDE8A), juce::Colour(0xFFFF8C2A), moltenOrange);
+                    juce::Colour(0xFFC46A34));
             } else {
                 g.setFont(noteFont);
                 g.setColour(bronzeText.withAlpha(0.5f));
@@ -124,9 +118,7 @@ public:
             g.drawText(title, hdr, juce::Justification::centredLeft, false);
 
             g.setFont(transducer::ui::makeUiFont(12.5f, true, false));
-            g.setColour(juce::Colours::black.withAlpha(0.75f));
-            g.drawText(valueStr, hdr.translated(0, 1), juce::Justification::centredRight, false);
-            g.setColour(midi_note_ >= 0 || !isBipolar ? amberGlow : bronzeText);
+            g.setColour(midi_note_ >= 0 || !isBipolar ? juce::Colour(0xFF9E5228) : bronzeText);
             g.drawText(valueStr, hdr, juce::Justification::centredRight, false);
 
             // Sleek recessed groove track (6px tall) aligned cleanly with pitch readout
@@ -196,11 +188,14 @@ public:
         const juce::String pressStr = juce::String(static_cast<int>(std::round(pressure_ * 100.0f))) + "%";
         drawGlowingTrack(pressureCol, "PRESSURE", pressStr, false, pressure_);
 
-        // 4. String Tabs (S1..S6): cohesive strip with 5px gaps, slim metallic inactive, molten lava active
+        // 4. String Tabs (S1..S6): cohesive strip with 5px gaps, matte oxidized-copper active state
         const float gap = 5.0f;
         const float totalW = static_cast<float>(stringStrip.getWidth());
         const float tabW = (totalW - gap * 5.0f) / 6.0f;
-        const auto& lavaImg = transducer::ui::UiAssets::get().activeTabLava;
+        const juce::Colour activeTabTop(0xFF8C4218);
+        const juce::Colour activeTabBottom(0xFF6B2F0E);
+        const juce::Colour activeTabBorder(0xFFA65223);
+        const juce::Colour activeTabText(0xFFE2D5C8);
 
         for (int i = 0; i < 6; ++i) {
             const float tx = static_cast<float>(stringStrip.getX()) + static_cast<float>(i) * (tabW + gap);
@@ -213,41 +208,20 @@ public:
             const bool lit = focused || (active && last_active_string_ < 0);
 
             if (lit) {
-                // Soft fiery molten outer glow
-                g.setColour(moltenOrange.withAlpha(0.36f));
-                g.fillRoundedRectangle(cell.expanded(2.5f, 1.8f), 4.5f);
+                const auto pill = cell.reduced(0.5f);
+                juce::ColourGradient copperGrad(activeTabTop, pill.getX(), pill.getY(),
+                                                activeTabBottom, pill.getX(), pill.getBottom(), false);
+                g.setGradientFill(copperGrad);
+                g.fillRoundedRectangle(pill, 3.0f);
 
-                // Clip molten lava fill cleanly inside the exact slim beveled pill bounds (no thick rivets)
-                {
-                    juce::Graphics::ScopedSaveState state(g);
-                    juce::Path pillClip;
-                    pillClip.addRoundedRectangle(cell.reduced(0.5f), 3.0f);
-                    g.reduceClipRegion(pillClip);
+                g.setColour(activeTabBorder);
+                g.drawHorizontalLine(static_cast<int>(pill.getY() + 1.0f), pill.getX() + 3.0f, pill.getRight() - 3.0f);
 
-                    if (lavaImg.isValid()) {
-                        g.setImageResamplingQuality(juce::Graphics::highResamplingQuality);
-                        g.drawImage(lavaImg, cell, juce::RectanglePlacement::stretchToFit);
-                    } else {
-                        juce::ColourGradient lavaGrad(moltenOrange, cell.getX(), cell.getCentreY(),
-                                                      amberBright, cell.getCentreX(), cell.getCentreY(), true);
-                        g.setGradientFill(lavaGrad);
-                        g.fillRect(cell);
-                    }
+                g.setColour(activeTabBorder.withAlpha(0.85f));
+                g.drawRoundedRectangle(pill, 3.0f, 1.0f);
 
-                    // Luminous warm center glow so S3 blazes like molten gold-orange magma
-                    juce::ColourGradient hotCenter(juce::Colour(0x40FFF4B0), cell.getCentreX(), cell.getCentreY(),
-                                                   juce::Colour(0x28FF4500), cell.getX(), cell.getY(), true);
-                    g.setGradientFill(hotCenter);
-                    g.fillRect(cell);
-                }
-
-                // Slim glowing amber bevel border
-                g.setColour(amberBright.withAlpha(0.85f));
-                g.drawRoundedRectangle(cell.reduced(0.5f), 3.0f, 1.0f);
-
-                // Bold #0A0806 active tab text
                 g.setFont(transducer::ui::makeUiFont(13.0f, true, false));
-                g.setColour(grooveDark);
+                g.setColour(activeTabText);
                 g.drawText("S" + juce::String(i + 1), cell.toNearestInt(), juce::Justification::centred, false);
             } else {
                 // Slim dark beveled metallic bar (#14100C fill, #6B4A2F border, #C4A882 text)
@@ -261,7 +235,7 @@ public:
                 g.drawHorizontalLine(static_cast<int>(cell.getY() + 1.0f), cell.getX() + 3.0f, cell.getRight() - 3.0f);
 
                 // Border (subtly warmer if secondary active string)
-                g.setColour(active ? amberGlow.withAlpha(0.65f) : bronzeBorder.withAlpha(0.85f));
+                g.setColour(active ? activeTabBorder.withAlpha(0.75f) : bronzeBorder.withAlpha(0.85f));
                 g.drawRoundedRectangle(cell.reduced(0.5f), 3.0f, 1.0f);
 
                 g.setFont(transducer::ui::makeUiFont(12.0f, false, false));

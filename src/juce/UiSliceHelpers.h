@@ -242,4 +242,33 @@ inline void drawGlowingAmberText(juce::Graphics& g,
     g.fillPath(textPath);
 }
 
+/**
+ * Draws flat, matte burnt-orange text with no drop shadow, outer bloom, or
+ * highlight gradient (used for main title and hero pitch readout).
+ */
+inline void drawMatteOrangeText(juce::Graphics& g,
+                                const juce::String& text,
+                                const juce::Font& font,
+                                juce::Rectangle<float> bounds,
+                                juce::Justification justification,
+                                juce::Colour textColour = juce::Colour(0xFFC46A34))
+{
+    if (text.isEmpty() || bounds.isEmpty())
+        return;
+
+    juce::GlyphArrangement glyphs;
+    glyphs.addFittedText(font, text,
+                         bounds.getX(), bounds.getY(),
+                         bounds.getWidth(), bounds.getHeight(),
+                         justification, 1, 0.92f);
+
+    juce::Path textPath;
+    glyphs.createPath(textPath);
+    if (textPath.isEmpty())
+        return;
+
+    g.setColour(textColour);
+    g.fillPath(textPath);
+}
+
 } // namespace transducer::ui

@@ -26,6 +26,13 @@ public:
     static inline const juce::Colour kAmberGlow{0xFFFF9A3C};
     static inline const juce::Colour kAmberBright{0xFFFFD080};
     static inline const juce::Colour kMoltenOrange{0xFFFF6B1A};
+    static inline const juce::Colour kMatteOrangePrimary{0xFFC46A34};
+    static inline const juce::Colour kMatteOrangeReadout{0xFFB85E2B};
+    static inline const juce::Colour kMatteOrangeSecondary{0xFF9E5228};
+    static inline const juce::Colour kActiveTabTop{0xFF8C4218};
+    static inline const juce::Colour kActiveTabBottom{0xFF6B2F0E};
+    static inline const juce::Colour kActiveTabBorder{0xFFA65223};
+    static inline const juce::Colour kActiveTabText{0xFFE2D5C8};
 
     TransducerLookAndFeel()
     {
@@ -34,7 +41,7 @@ public:
         setColour(juce::Slider::rotarySliderFillColourId, kMoltenOrange);
         setColour(juce::Slider::rotarySliderOutlineColourId, kBronzeBorder);
         setColour(juce::Slider::thumbColourId, kAmberGlow);
-        setColour(juce::Slider::textBoxTextColourId, kAmberGlow);
+        setColour(juce::Slider::textBoxTextColourId, kMatteOrangeReadout);
         setColour(juce::Slider::textBoxBackgroundColourId, juce::Colour(0xFF110D0A));
         setColour(juce::Slider::textBoxOutlineColourId, kBronzeBorder);
 
@@ -75,7 +82,7 @@ public:
         auto* l = juce::LookAndFeel_V4::createSliderTextBox(slider);
         l->setJustificationType(juce::Justification::centred);
         l->setFont(transducer::ui::makeUiFont(14.5f, true, false));
-        l->setColour(juce::Label::textColourId, kAmberGlow);
+        l->setColour(juce::Label::textColourId, kMatteOrangeReadout);
         l->setColour(juce::Label::backgroundColourId, juce::Colour(0xFF110D0A));
         l->setColour(juce::Label::outlineColourId, kBronzeBorder);
         l->setBorderSize(juce::BorderSize<int>(1, 3, 1, 3));
@@ -97,25 +104,16 @@ public:
             g.setGradientFill(fillGrad);
             g.fillRoundedRectangle(b, 3.5f);
 
-            // Subtle warm inner amber glow behind readout text
-            juce::ColourGradient glow(kMoltenOrange.withAlpha(0.15f), b.getCentreX(), b.getCentreY(),
-                                      juce::Colours::transparentBlack, b.getX(), b.getCentreY(), true);
-            g.setGradientFill(glow);
-            g.fillRoundedRectangle(b.reduced(1.0f), 3.0f);
-
             // Beveled oxidized bronze outline
             juce::ColourGradient borderGrad(kBronzeLight.withAlpha(0.72f), b.getX(), b.getY(),
                                             kBronzeBorder.darker(0.42f), b.getX(), b.getBottom(), false);
             g.setGradientFill(borderGrad);
             g.drawRoundedRectangle(b, 3.5f, 1.05f);
 
-            // Warm glowing amber readout text (#FF9A3C / #F5E6D3)
+            // Flat matte burnt-orange readout text (no glow, no drop shadow)
             const auto font = transducer::ui::makeUiFont(14.5f, true, false);
             g.setFont(font);
-            g.setColour(juce::Colours::black.withAlpha(0.78f));
-            g.drawText(label.getText(), label.getLocalBounds().translated(0, 1),
-                       juce::Justification::centred, false);
-            g.setColour(kAmberGlow);
+            g.setColour(kMatteOrangeReadout);
             g.drawText(label.getText(), label.getLocalBounds(),
                        juce::Justification::centred, false);
             return;

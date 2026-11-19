@@ -94,8 +94,8 @@ public:
 };
 
 /**
- * JIVE-managed custom title renderer: bold vertical warm amber-orange gradient
- * (#FFDE8A -> #FF6B1A) with subtle 2-pass #FF6B1A outer glow and drop shadow.
+ * JIVE-managed custom title renderer: flat matte burnt-orange typography
+ * (#C46A34) with no glow, bloom, or drop shadow.
  */
 class GlowingTitle final : public juce::Component {
 public:
@@ -110,14 +110,12 @@ public:
         const auto bounds = getLocalBounds().toFloat();
         const float fontPt = std::clamp(bounds.getHeight() * 0.90f, 22.0f, 36.0f);
         const auto titleFont = makeUiFont(fontPt, true, true);
-        drawGlowingAmberText(g,
-                             "GUITAR MPE TRANSDUCER",
-                             titleFont,
-                             bounds,
-                             juce::Justification::centredLeft,
-                             juce::Colour(0xFFFFDE8A),
-                             juce::Colour(0xFFFF6B1A),
-                             juce::Colour(0xFFFF6B1A));
+        drawMatteOrangeText(g,
+                            "GUITAR MPE TRANSDUCER",
+                            titleFont,
+                            bounds,
+                            juce::Justification::centredLeft,
+                            TransducerLookAndFeel::kMatteOrangePrimary);
     }
 };
 
@@ -332,26 +330,16 @@ public:
             pillW,
             pillH);
 
-        // Compact recessed backing pill + soft inner amber ambient glow
+        // Compact recessed backing pill (no inner glow)
         g.setColour(juce::Colour(0xC80B0806));
         g.fillRoundedRectangle(pill, 4.0f);
-        if (snapshot_.midiNote >= 0) {
-            juce::ColourGradient pillGlow(TransducerLookAndFeel::kMoltenOrange.withAlpha(0.16f),
-                                          pill.getCentreX(), pill.getCentreY(),
-                                          juce::Colours::transparentBlack,
-                                          pill.getX(), pill.getCentreY(), true);
-            g.setGradientFill(pillGlow);
-            g.fillRoundedRectangle(pill.reduced(1.0f), 3.0f);
-        }
         g.setColour(TransducerLookAndFeel::kBronzeBorder.withAlpha(0.36f));
         g.drawRoundedRectangle(pill.reduced(0.5f), 4.0f, 0.85f);
 
         const auto textBox = pill.reduced(7.0f, 1.0f);
         if (snapshot_.midiNote >= 0) {
-            drawGlowingAmberText(g, noteText, noteFont, textBox, juce::Justification::centredLeft,
-                                 juce::Colour(0xFFFFDE8A),
-                                 juce::Colour(0xFFFF8C2A),
-                                 TransducerLookAndFeel::kMoltenOrange);
+            drawMatteOrangeText(g, noteText, noteFont, textBox, juce::Justification::centredLeft,
+                                TransducerLookAndFeel::kMatteOrangePrimary);
         } else {
             g.setFont(noteFont);
             g.setColour(TransducerLookAndFeel::kBronzeText.withAlpha(0.5f));
@@ -398,9 +386,7 @@ public:
         g.drawText(title, hdr, juce::Justification::centredLeft, false);
 
         g.setFont(makeUiFont(14.5f, true, false));
-        g.setColour(juce::Colours::black.withAlpha(0.75f));
-        g.drawText(valueStr, hdr.translated(0, 1), juce::Justification::centredRight, false);
-        g.setColour((snapshot_.midiNote >= 0 || !isBipolar) ? TransducerLookAndFeel::kAmberGlow
+        g.setColour((snapshot_.midiNote >= 0 || !isBipolar) ? TransducerLookAndFeel::kMatteOrangeSecondary
                                                             : TransducerLookAndFeel::kBronzeText);
         g.drawText(valueStr, hdr, juce::Justification::centredRight, false);
 
@@ -464,7 +450,7 @@ private:
 /**
  * JIVE-managed single string tab (S1..S6). Sized and spaced exclusively by JIVE
  * Flex layout (equal width, 5-6px gaps). Renders slim dark beveled metallic bar
- * when inactive and clean molten lava pill with bold #0A0806 text when active.
+ * when inactive and matte oxidized-copper pill with warm parchment text when active.
  */
 class StringTabView final : public juce::Component {
 public:
@@ -492,41 +478,26 @@ public:
         const bool focused = active && (idx == snapshot_.lastActiveString);
         const bool lit = focused || (active && snapshot_.lastActiveString < 0);
 
-        const auto& lavaImg = UiAssets::get().activeTabLava;
-
         if (lit) {
-            // Subtle fiery outer glow inside slight inset so adjacent tabs never clip awkwardly
             const auto pill = cell.reduced(0.5f);
 
-            {
-                juce::Graphics::ScopedSaveState state(g);
-                juce::Path pillClip;
-                pillClip.addRoundedRectangle(pill, 3.2f);
-                g.reduceClipRegion(pillClip);
+            // Matte oxidized-copper vertical gradient (#8C4218 -> #6B2F0E), no bloom or lava overlay
+            juce::ColourGradient copperGrad(TransducerLookAndFeel::kActiveTabTop, pill.getX(), pill.getY(),
+                                            TransducerLookAndFeel::kActiveTabBottom, pill.getX(), pill.getBottom(), false);
+            g.setGradientFill(copperGrad);
+            g.fillRoundedRectangle(pill, 3.2f);
 
-                if (lavaImg.isValid()) {
-                    g.setImageResamplingQuality(juce::Graphics::highResamplingQuality);
-                    g.drawImage(lavaImg, pill, juce::RectanglePlacement::stretchToFit);
-                } else {
-                    juce::ColourGradient lavaGrad(TransducerLookAndFeel::kMoltenOrange, pill.getX(), pill.getCentreY(),
-                                                  juce::Colour(0xFFFFD060), pill.getCentreX(), pill.getCentreY(), true);
-                    g.setGradientFill(lavaGrad);
-                    g.fillRect(pill);
-                }
+            // Subtle 1px inner top border (#A65223)
+            g.setColour(TransducerLookAndFeel::kActiveTabBorder);
+            g.drawHorizontalLine(static_cast<int>(pill.getY() + 1.0f), pill.getX() + 3.0f, pill.getRight() - 3.0f);
 
-                juce::ColourGradient hotCenter(juce::Colour(0x42FFF4B0), pill.getCentreX(), pill.getCentreY(),
-                                               juce::Colour(0x28FF4500), pill.getX(), pill.getY(), true);
-                g.setGradientFill(hotCenter);
-                g.fillRect(pill);
-            }
+            // Muted oxidized-copper outer border
+            g.setColour(TransducerLookAndFeel::kActiveTabBorder.withAlpha(0.85f));
+            g.drawRoundedRectangle(pill, 3.2f, 1.05f);
 
-            // Slim glowing amber bevel border
-            g.setColour(TransducerLookAndFeel::kAmberBright.withAlpha(0.88f));
-            g.drawRoundedRectangle(pill, 3.2f, 1.15f);
-
-            // Bold #0A0806 active label
+            // Matte warm parchment active label (#E2D5C8)
             g.setFont(makeUiFont(15.0f, true, false));
-            g.setColour(TransducerLookAndFeel::kGrooveDark);
+            g.setColour(TransducerLookAndFeel::kActiveTabText);
             g.drawText("S" + juce::String(idx + 1), getLocalBounds(), juce::Justification::centred, false);
         } else {
             const auto pill = cell.reduced(0.5f);
@@ -539,7 +510,7 @@ public:
             g.setColour(TransducerLookAndFeel::kBronzeLight.withAlpha(0.45f));
             g.drawHorizontalLine(static_cast<int>(pill.getY() + 1.0f), pill.getX() + 3.0f, pill.getRight() - 3.0f);
 
-            g.setColour(active ? TransducerLookAndFeel::kAmberGlow.withAlpha(0.65f)
+            g.setColour(active ? TransducerLookAndFeel::kActiveTabBorder.withAlpha(0.75f)
                                : TransducerLookAndFeel::kBronzeBorder.withAlpha(0.88f));
             g.drawRoundedRectangle(pill, 3.2f, 1.05f);
 
