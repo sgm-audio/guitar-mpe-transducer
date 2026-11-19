@@ -21,6 +21,7 @@ endif()
 
 option(TRANSDUCER_BUILD_JUCE "Build JUCE VST3/AU/Standalone targets" OFF)
 option(TRANSDUCER_BUILD_JUCE_CLAP "Also export CLAP via clap-juce-extensions" OFF)
+option(BUILD_GUI_PREVIEW "Build headless 2x GuiPreview snapshot renderer" ON)
 
 # Fetch dependencies
 include(cmake/Dependencies.cmake)
@@ -112,6 +113,8 @@ if(TRANSDUCER_BUILD_JUCE)
     target_link_libraries(guitar_mpe_transducer_juce
         PRIVATE
             GuitarMpeUiAssets
+            jive::jive_layouts
+            jive::jive_style_sheets
             juce::juce_audio_utils
             juce::juce_dsp
         PUBLIC
@@ -128,35 +131,41 @@ if(TRANSDUCER_BUILD_JUCE)
         )
     endif()
 
-    juce_add_console_app(GuiPreview
-        PRODUCT_NAME "GuiPreview"
-    )
+    if(BUILD_GUI_PREVIEW)
+        juce_add_console_app(GuiPreview
+            PRODUCT_NAME "GuiPreview"
+        )
 
-    target_sources(GuiPreview
-        PRIVATE
-            tools/gui_preview_main.cpp
-            src/juce/PluginProcessor.cpp
-            src/juce/PluginEditor.cpp
-    )
+        target_sources(GuiPreview
+            PRIVATE
+                tools/gui_preview_main.cpp
+                src/juce/PluginProcessor.cpp
+                src/juce/PluginEditor.cpp
+        )
 
-    target_include_directories(GuiPreview
-        PRIVATE
-            ${CMAKE_CURRENT_SOURCE_DIR}/include
-    )
+        target_include_directories(GuiPreview
+            PRIVATE
+                ${CMAKE_CURRENT_SOURCE_DIR}/include
+        )
 
-    target_compile_definitions(GuiPreview
-        PRIVATE
-            JUCE_WEB_BROWSER=0
-            JUCE_USE_CURL=0
-            JucePlugin_Name="Guitar MPE Transducer"
-    )
+        target_compile_definitions(GuiPreview
+            PRIVATE
+                JUCE_WEB_BROWSER=0
+                JUCE_USE_CURL=0
+                JUCE_MODAL_LOOPS_PERMITTED=1
+                JIVE_IS_PLUGIN_PROJECT=1
+                JucePlugin_Name="Guitar MPE Transducer"
+        )
 
-    target_link_libraries(GuiPreview
-        PRIVATE
-            GuitarMpeUiAssets
-            juce::juce_audio_processors
-            juce::juce_dsp
-            juce::juce_gui_basics
-            juce::juce_recommended_config_flags
-    )
+        target_link_libraries(GuiPreview
+            PRIVATE
+                GuitarMpeUiAssets
+                jive::jive_layouts
+                jive::jive_style_sheets
+                juce::juce_audio_processors
+                juce::juce_dsp
+                juce::juce_gui_basics
+                juce::juce_recommended_config_flags
+        )
+    endif()
 endif()
