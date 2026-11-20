@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<PARAMETERS magic="GTRJ" version="1">
+  <PARAM id="bend_range" value="2.0"/>
+  <PARAM id="transient_sensitivity" value="0.0145"/>
+  <PARAM id="gate_threshold" value="0.0038"/>
+  <PARAM id="routing_mode" value="0"/>
+  <PARAM id="output_dialect" value="1"/>
+</PARAMETERS>

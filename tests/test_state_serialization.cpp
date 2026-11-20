@@ -97,13 +97,23 @@ TEST_CASE("StateSerializer works through CLAP stream interface", "[state][clap]"
 }
 
 #include <transducer/presets/factory_presets.h>
+#include <set>
+#include <string>
 
 TEST_CASE("Factory presets round-trip through StateSerializer within parameter bounds", "[state][presets]") {
     using namespace transducer::state;
     using namespace transducer::params;
     using namespace transducer::presets;
 
+    REQUIRE(kNumFactoryPresets == 25);
+
+    std::set<std::string> seen_names;
+    std::set<std::string> seen_filenames;
+
     for (const auto& preset : kFactoryPresets) {
+        REQUIRE(seen_names.insert(preset.name).second);
+        REQUIRE(seen_filenames.insert(preset.filename).second);
+
         ParameterManager src;
         src.set_value(kParamBendRange, preset.bend_range);
         src.set_value(kParamTransientSensitivity, preset.transient_sensitivity);
